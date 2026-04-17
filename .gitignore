@@ -1,0 +1,23 @@
+# Claude Code internals
+.claude/
+
+# CV generated outputs (test fixtures kept, result artifacts ignored)
+cv/result_*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Xcode
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcworkspace/contents.xcworkspacedata
+ios/DerivedData/
+ios/*.ipa
+ios/*.dSYM.zip
+
+# macOS
+.DS_Store
