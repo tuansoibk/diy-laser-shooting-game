@@ -29,7 +29,7 @@ struct CameraPreview: UIViewRepresentable {
 enum DetectionState {
     case idle
     case armed
-    case result(image: UIImage, normalizedDot: CGPoint)
+    case result(image: UIImage, normalizedDots: [CGPoint])
 }
 
 // MARK: - ViewModel
@@ -69,7 +69,8 @@ class AppViewModel: ObservableObject {
     // Runs on camera.processingQueue
     private func processFrame(_ pixelBuffer: CVPixelBuffer) {
         guard isArmed else { return }
-        guard let result = detector.detect(in: pixelBuffer) else { return }
+        let results = detector.detect(in: pixelBuffer)
+        guard !results.isEmpty else { return }
 
         isArmed = false  // disarm before any async work — no second detection
 
@@ -77,9 +78,10 @@ class AppViewModel: ObservableObject {
         let context = CIContext()
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
         let image = UIImage(cgImage: cgImage)
+        let dots = results.map { $0.normalizedCenter }
 
         DispatchQueue.main.async {
-            self.state = .result(image: image, normalizedDot: result.normalizedCenter)
+            self.state = .result(image: image, normalizedDots: dots)
         }
     }
 }
@@ -97,8 +99,8 @@ struct ContentView: View {
                 IdleView(vm: vm)
             case .armed:
                 ArmedView(vm: vm)
-            case .result(let image, let dot):
-                ResultView(vm: vm, image: image, normalizedDot: dot)
+            case .result(let image, let dots):
+                ResultView(vm: vm, image: image, normalizedDots: dots)
             }
         }
         .statusBar(hidden: true)
@@ -212,7 +214,7 @@ struct ScanningBadge: View {
 struct ResultView: View {
     @ObservedObject var vm: AppViewModel
     let image: UIImage
-    let normalizedDot: CGPoint
+    let normalizedDots: [CGPoint]
 
     var body: some View {
         ZStack {
@@ -228,21 +230,26 @@ struct ResultView: View {
                     .scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                let dotX = offsetX + normalizedDot.x * imgSize.width
-                let dotY = offsetY + normalizedDot.y * imgSize.height
-                DotOverlay()
-                    .position(x: dotX, y: dotY)
+                ForEach(normalizedDots.indices, id: \.self) { i in
+                    let dot = normalizedDots[i]
+                    let dotX = offsetX + dot.x * imgSize.width
+                    let dotY = offsetY + dot.y * imgSize.height
+                    DotOverlay(index: i + 1)
+                        .position(x: dotX, y: dotY)
+                }
             }
 
             VStack {
                 Spacer()
                 VStack(spacing: 6) {
-                    Text("Dot detected")
+                    Text("\(normalizedDots.count) dot\(normalizedDots.count == 1 ? "" : "s") detected")
                         .font(.headline)
                         .foregroundColor(.white)
-                    Text(String(format: "x: %.3f  y: %.3f", normalizedDot.x, normalizedDot.y))
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.7))
+                    ForEach(normalizedDots.indices, id: \.self) { i in
+                        Text(String(format: "#%d  x: %.3f  y: %.3f", i + 1, normalizedDots[i].x, normalizedDots[i].y))
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.7))
+                    }
                 }
                 .padding(14)
                 .background(Color.black.opacity(0.7))
@@ -272,6 +279,7 @@ struct ResultView: View {
 }
 
 struct DotOverlay: View {
+    let index: Int
     @State private var pulsing = false
 
     var body: some View {
@@ -286,6 +294,10 @@ struct DotOverlay: View {
             Circle()
                 .fill(Color.green)
                 .frame(width: 6, height: 6)
+            Text("\(index)")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.green)
+                .offset(x: 14, y: -14)
         }
         .onAppear { pulsing = true }
     }
