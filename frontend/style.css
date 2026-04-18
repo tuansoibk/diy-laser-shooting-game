@@ -1,0 +1,351 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:     #0f0f0f;
+  --card:   #1c1c1e;
+  --border: #2c2c2e;
+  --text:   #f2f2f7;
+  --sub:    #8e8e93;
+  --green:  #30d158;
+  --yellow: #ffd60a;
+  --red:    #ff453a;
+  --blue:   #0a84ff;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+/* ── Setup ──────────────────────────────────────────────────── */
+
+#setup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.setup-card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.setup-card h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.field input {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  font-family: inherit;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field input:focus { border-color: var(--blue); }
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 20px;
+  transition: filter 0.15s;
+}
+
+#s-connect {
+  background: var(--green);
+  color: #000;
+}
+
+#s-connect:hover { filter: brightness(1.1); }
+
+.error {
+  color: var(--red);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* ── Main ───────────────────────────────────────────────────── */
+
+#main {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Topbar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.player-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtitle {
+  font-size: 0.82rem;
+  color: var(--sub);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sub);
+  display: inline-block;
+  transition: background 0.3s;
+}
+
+.status-dot.live { background: var(--green); }
+.status-dot.error { background: var(--red); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--blue);
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.btn-ghost:hover { background: rgba(255,255,255,0.05); }
+
+/* Content layout */
+
+.content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.canvas-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  min-width: 0;
+}
+
+canvas {
+  display: block;
+  /* CSS max-size; actual pixel dimensions set by JS */
+  max-width: 520px;
+  max-height: 520px;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+}
+
+/* Side panel */
+
+.side-panel {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Scorecard */
+
+.scorecard {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.stat-item {
+  padding: 14px 6px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+}
+
+.stat-item:last-child { border-right: none; }
+
+.stat-val {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stat-lbl {
+  font-size: 0.65rem;
+  color: var(--sub);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Shot list */
+
+.section-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 16px 6px;
+  flex-shrink: 0;
+}
+
+.shot-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.shot-list::-webkit-scrollbar { width: 4px; }
+.shot-list::-webkit-scrollbar-track { background: transparent; }
+.shot-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.shot-row {
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.shot-row.new {
+  animation: flash-in 0.7s ease-out;
+}
+
+@keyframes flash-in {
+  0%   { background: rgba(48, 209, 88, 0.22); }
+  100% { background: transparent; }
+}
+
+.shot-num {
+  color: var(--sub);
+  font-size: 0.75rem;
+  width: 26px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.shot-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,0.3);
+}
+
+.shot-score {
+  font-weight: 700;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.shot-dist {
+  color: var(--sub);
+  font-size: 0.78rem;
+  flex: 1;
+}
+
+.shot-time {
+  color: var(--sub);
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.empty-hint {
+  padding: 20px 16px;
+  color: var(--sub);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  #main { height: auto; min-height: 100vh; }
+
+  .content {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .canvas-wrap {
+    flex: none;
+    padding: 16px 16px 8px;
+  }
+
+  canvas { max-width: 340px; max-height: 340px; }
+
+  .side-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+
+  .shot-list { overflow: visible; }
+}

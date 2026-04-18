@@ -1,0 +1,337 @@
+'use strict';
+
+// ── Board constants (must match backend/cv_pipeline.py) ──────────────
+const BOARD = { SIZE: 800, NUM_RINGS: 10, MAX_RADIUS: 280, RING_WIDTH: 28 };
+
+// Ring fills from outermost (index 0, score 1) to innermost (index 9, score 10)
+// Classic ISSF target colour scheme: white → black → blue → red → gold
+const RING_FILLS = [
+  '#f0f0f0', '#d4d4d4',  // score 1-2: white
+  '#2a2a2a', '#111111',  // score 3-4: black
+  '#3b82f6', '#1d4ed8',  // score 5-6: blue
+  '#ef4444', '#b91c1c',  // score 7-8: red
+  '#fbbf24', '#d97706',  // score 9-10: gold
+];
+
+// Label colour for each ring
+const RING_LABEL_COLORS = [
+  '#000', '#000',  // white
+  '#fff', '#fff',  // black
+  '#fff', '#fff',  // blue
+  '#fff', '#fff',  // red
+  '#000', '#000',  // gold
+];
+
+function scoreColor(score) {
+  if (score >= 9) return '#fbbf24';
+  if (score >= 7) return '#ef4444';
+  if (score >= 5) return '#3b82f6';
+  if (score >= 1) return '#d0d0d0';
+  return '#555555';
+}
+
+// ── State ─────────────────────────────────────────────────────────────
+
+const state = {
+  backendURL: localStorage.getItem('backendURL') || 'http://192.168.1.1:8000',
+  gameId:    null,
+  roundId:   null,
+  shots:     [],
+  lastCount: 0,
+  pollTimer: null,
+};
+
+// ── DOM refs ──────────────────────────────────────────────────────────
+
+const $ = id => document.getElementById(id);
+
+const setupEl  = $('setup');
+const mainEl   = $('main');
+const canvas   = $('canvas');
+const ctx      = canvas.getContext('2d');
+
+// ── Boot ──────────────────────────────────────────────────────────────
+
+function init() {
+  const params = new URLSearchParams(window.location.search);
+
+  const backend = params.get('backend') || state.backendURL;
+  state.backendURL = backend;
+  $('s-backend').value = backend;
+
+  const gid = params.get('game_id');
+  const rid = params.get('round_id');
+  if (gid) $('s-game').value = gid;
+  if (rid) $('s-round').value = rid;
+
+  $('s-connect').addEventListener('click', onConnect);
+  $('m-change').addEventListener('click', onChangeSesssion);
+  window.addEventListener('resize', () => { resizeCanvas(); renderCanvas(); });
+
+  if (gid && rid) {
+    connect(parseInt(gid), parseInt(rid));
+  } else {
+    resizeCanvas();
+  }
+}
+
+// ── Setup actions ─────────────────────────────────────────────────────
+
+function onConnect() {
+  const backend = $('s-backend').value.trim().replace(/\/$/, '');
+  const gid = parseInt($('s-game').value);
+  const rid = parseInt($('s-round').value);
+
+  if (!backend || !gid || !rid) { showError('Please fill in all fields.'); return; }
+
+  state.backendURL = backend;
+  localStorage.setItem('backendURL', backend);
+  hideError();
+  connect(gid, rid);
+}
+
+function onChangeSesssion() {
+  stopPolling();
+  mainEl.classList.add('hidden');
+  setupEl.classList.remove('hidden');
+}
+
+// ── Session connect ───────────────────────────────────────────────────
+
+async function connect(gameId, roundId) {
+  state.gameId  = gameId;
+  state.roundId = roundId;
+  state.shots   = [];
+  state.lastCount = 0;
+
+  let playerName = 'Player';
+  try {
+    const game = await fetchJSON(`/games/${gameId}`);
+    playerName = game.player_name;
+  } catch (e) {
+    showError(`Cannot reach backend: ${e.message}`);
+    return;
+  }
+
+  $('m-player').textContent   = playerName;
+  $('m-subtitle').textContent = `Game #${gameId} · Round #${roundId}`;
+
+  // Persist session in URL so the page can be bookmarked / shared
+  const url = new URL(window.location);
+  url.searchParams.set('backend',  state.backendURL);
+  url.searchParams.set('game_id',  gameId);
+  url.searchParams.set('round_id', roundId);
+  history.replaceState({}, '', url);
+
+  setupEl.classList.add('hidden');
+  mainEl.classList.remove('hidden');
+
+  resizeCanvas();
+  renderCanvas();
+  startPolling();
+}
+
+// ── Polling ───────────────────────────────────────────────────────────
+
+function startPolling() {
+  poll();
+  state.pollTimer = setInterval(poll, 1500);
+}
+
+function stopPolling() {
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
+
+async function poll() {
+  const dot = $('m-status');
+  try {
+    const shots = await fetchJSON(`/rounds/${state.roundId}/shots`);
+    const hasNew = shots.length > state.lastCount;
+    state.shots = shots;
+    renderCanvas();
+    renderStats();
+    renderShotList(hasNew);
+    state.lastCount = shots.length;
+    dot.className = 'status-dot live';
+  } catch (e) {
+    dot.className = 'status-dot error';
+    console.warn('Poll error:', e.message);
+  }
+}
+
+// ── Fetch helper ──────────────────────────────────────────────────────
+
+async function fetchJSON(path) {
+  const res = await fetch(state.backendURL + path);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Canvas ────────────────────────────────────────────────────────────
+
+function resizeCanvas() {
+  const wrap = canvas.parentElement;
+  if (!wrap) return;
+  const size = Math.min(wrap.clientWidth - 40, wrap.clientHeight - 40, 520);
+  if (size < 80) return;
+  canvas.width  = size;
+  canvas.height = size;
+}
+
+function renderCanvas() {
+  const S  = canvas.width || 400;
+  const cx = S / 2;
+  const cy = S / 2;
+  // Scale so MAX_RADIUS maps to 44% of the canvas half-width
+  const scale = (S * 0.44) / BOARD.MAX_RADIUS;
+
+  ctx.clearRect(0, 0, S, S);
+
+  // Background
+  ctx.fillStyle = '#1c1c1e';
+  ctx.fillRect(0, 0, S, S);
+
+  // Rings — draw from outermost to innermost so each covers the one before
+  for (let i = BOARD.NUM_RINGS - 1; i >= 0; i--) {
+    const r = (i + 1) * BOARD.RING_WIDTH * scale;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = RING_FILLS[i];
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 0.75;
+    ctx.stroke();
+  }
+
+  // Score labels — upper-right quadrant of each ring
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const labelAngle = -Math.PI / 4;
+  for (let i = 0; i < BOARD.NUM_RINGS; i++) {
+    const score = BOARD.NUM_RINGS - i;
+    const midR  = (i + 0.5) * BOARD.RING_WIDTH * scale;
+    const lx    = cx + Math.cos(labelAngle) * midR;
+    const ly    = cy + Math.sin(labelAngle) * midR;
+    const fs    = Math.max(7, Math.min(13, BOARD.RING_WIDTH * scale * 0.44));
+    ctx.font      = `bold ${fs}px system-ui`;
+    ctx.fillStyle = RING_LABEL_COLORS[i];
+    ctx.fillText(score, lx, ly);
+  }
+
+  // Subtle crosshair
+  const cr = BOARD.MAX_RADIUS * scale;
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - cr, cy); ctx.lineTo(cx + cr, cy);
+  ctx.moveTo(cx, cy - cr); ctx.lineTo(cx, cy + cr);
+  ctx.stroke();
+
+  // Shots
+  for (let idx = 0; idx < state.shots.length; idx++) {
+    const shot = state.shots[idx];
+    const sx = cx + (shot.x - 0.5) * BOARD.SIZE * scale;
+    const sy = cy + (shot.y - 0.5) * BOARD.SIZE * scale;
+
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur  = 4;
+
+    ctx.beginPath();
+    ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = scoreColor(shot.score);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Shot number label
+    ctx.fillStyle   = 'rgba(0,0,0,0.75)';
+    ctx.font        = 'bold 8px system-ui';
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(idx + 1, sx, sy);
+  }
+
+  // "Waiting" hint when no shots yet
+  if (state.shots.length === 0) {
+    ctx.font      = '13px system-ui';
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Waiting for shots…', cx, cy + BOARD.MAX_RADIUS * scale + 18);
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────
+
+function renderStats() {
+  const shots = state.shots;
+  if (shots.length === 0) {
+    $('m-total').textContent = '—';
+    $('m-count').textContent = '0';
+    $('m-best').textContent  = '—';
+    $('m-avg').textContent   = '—';
+    return;
+  }
+  const total = shots.reduce((s, r) => s + r.score, 0);
+  const best  = Math.max(...shots.map(r => r.score));
+  const avg   = (total / shots.length).toFixed(1);
+  $('m-total').textContent = total;
+  $('m-count').textContent = shots.length;
+  $('m-best').textContent  = best;
+  $('m-avg').textContent   = avg;
+}
+
+// ── Shot list ─────────────────────────────────────────────────────────
+
+function renderShotList(hasNew) {
+  const list  = $('shot-list');
+  const shots = state.shots;
+
+  if (shots.length === 0) {
+    list.innerHTML = '<div class="empty-hint">No shots yet</div>';
+    return;
+  }
+
+  // Newest first
+  const html = [...shots].reverse().map((shot, revIdx) => {
+    const num   = shots.length - revIdx;
+    const isNew = hasNew && revIdx === 0;
+    const time  = parseTime(shot.created_at);
+    const color = scoreColor(shot.score);
+    return `<div class="shot-row${isNew ? ' new' : ''}">
+      <span class="shot-num">#${num}</span>
+      <span class="shot-dot" style="background:${color}"></span>
+      <span class="shot-score" style="color:${color}">${shot.score}</span>
+      <span class="shot-dist">${shot.distance_px.toFixed(1)} px</span>
+      <span class="shot-time">${time}</span>
+    </div>`;
+  }).join('');
+
+  list.innerHTML = html;
+}
+
+// SQLite CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS" (UTC, no timezone)
+function parseTime(str) {
+  if (!str) return '';
+  try {
+    return new Date(str.replace(' ', 'T') + 'Z')
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch { return str.slice(11, 19); }
+}
+
+// ── Error helpers ─────────────────────────────────────────────────────
+
+function showError(msg) {
+  const el = $('s-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function hideError() { $('s-error').classList.add('hidden'); }
+
+// ── Start ─────────────────────────────────────────────────────────────
+
+init();
