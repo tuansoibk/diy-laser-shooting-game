@@ -64,14 +64,28 @@ class APIClient {
 
     // MARK: Shot detection
 
-    func detectShot(roundId: Int, jpeg: Data) async throws -> ShotResult {
+    func detectShot(roundId: Int, jpeg: Data, hintX: Double? = nil, hintY: Double? = nil) async throws -> ShotResult {
         let boundary = UUID().uuidString
         var body = Data()
+
+        // JPEG frame
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"frame\"; filename=\"frame.jpg\"\r\n")
         body.append("Content-Type: image/jpeg\r\n\r\n")
         body.append(jpeg)
-        body.append("\r\n--\(boundary)--\r\n")
+        body.append("\r\n")
+
+        // iOS-detected dot position hint (normalised 0–1 in raw frame coords)
+        if let x = hintX, let y = hintY {
+            body.append("--\(boundary)\r\n")
+            body.append("Content-Disposition: form-data; name=\"hint_x\"\r\n\r\n")
+            body.append("\(x)\r\n")
+            body.append("--\(boundary)\r\n")
+            body.append("Content-Disposition: form-data; name=\"hint_y\"\r\n\r\n")
+            body.append("\(y)\r\n")
+        }
+
+        body.append("--\(boundary)--\r\n")
 
         guard let url = URL(string: "\(baseURL)/rounds/\(roundId)/detect") else {
             throw URLError(.badURL)

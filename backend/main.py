@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -8,7 +8,7 @@ from database import init_db, get_conn
 from models import (
     GameCreate, GameResponse, GameDetail,
     RoundResponse, RoundDetail,
-    ShotResponse, DetectResponse, CurrentSession, List,
+    ShotResponse, DetectResponse, CurrentSession, List, Optional,
 )
 from cv_pipeline import process_frame, debug_frame
 
@@ -142,7 +142,12 @@ def get_round(round_id: int):
 # ---------------------------------------------------------------------------
 
 @app.post("/rounds/{round_id}/detect", response_model=DetectResponse)
-async def detect_shot(round_id: int, frame: UploadFile = File(...)):
+async def detect_shot(
+    round_id: int,
+    frame: UploadFile = File(...),
+    hint_x: Optional[float] = Form(None),
+    hint_y: Optional[float] = Form(None),
+):
     with get_conn() as conn:
         round_row = conn.execute("SELECT * FROM round WHERE id = ?", (round_id,)).fetchone()
         if not round_row:
@@ -151,7 +156,7 @@ async def detect_shot(round_id: int, frame: UploadFile = File(...)):
             raise HTTPException(400, "Round has already ended")
 
     jpeg_bytes = await frame.read()
-    result = process_frame(jpeg_bytes)
+    result = process_frame(jpeg_bytes, hint_x=hint_x, hint_y=hint_y)
 
     if result is None:
         return DetectResponse(detected=False)

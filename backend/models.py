@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
+# re-exported so main.py can import Optional from here alongside model classes
 
 class GameCreate(BaseModel):
     player_name: str = "Player"

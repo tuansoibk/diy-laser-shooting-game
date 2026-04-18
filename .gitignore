@@ -6,6 +6,7 @@ cv/result_*.png
 
 # Backend runtime data
 backend/game.db
+backend/debug/
 
 # Python
 __pycache__/

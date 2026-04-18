@@ -108,18 +108,28 @@ class AppViewModel: ObservableObject {
         guard let jpeg = image.jpegData(compressionQuality: 0.85) else { return }
         let dots = results.map { $0.normalizedCenter }
 
+        // Best inside dot (largest cluster) used as a position hint for the backend
+        let insideDots = boardQuad == nil
+            ? results
+            : results.filter { boardQuad!.contains($0.normalizedCenter) }
+        let hint = insideDots.max(by: { $0.clusterSize < $1.clusterSize })?.normalizedCenter
+
         DispatchQueue.main.async {
             guard case .armed(let gameId, let roundId) = self.appState else { return }
             self.appState = .posting(gameId: gameId, roundId: roundId, image: image, dots: dots)
             Task { await self.submitShot(gameId: gameId, roundId: roundId,
-                                         image: image, dots: dots, board: boardQuad, jpeg: jpeg) }
+                                         image: image, dots: dots, board: boardQuad,
+                                         jpeg: jpeg, hint: hint) }
         }
     }
 
     private func submitShot(gameId: Int, roundId: Int,
-                             image: UIImage, dots: [CGPoint], board: BoardQuad?, jpeg: Data) async {
+                             image: UIImage, dots: [CGPoint], board: BoardQuad?,
+                             jpeg: Data, hint: CGPoint?) async {
         do {
-            let shot = try await api.detectShot(roundId: roundId, jpeg: jpeg)
+            let shot = try await api.detectShot(roundId: roundId, jpeg: jpeg,
+                                                hintX: hint.map { Double($0.x) },
+                                                hintY: hint.map { Double($0.y) })
             if shot.multipleDots {
                 // Multiple dots found — re-arm and let user retry
                 errorMessage = "Multiple dots detected — please retry"
