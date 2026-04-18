@@ -4,29 +4,30 @@
 const BOARD = { SIZE: 800, NUM_RINGS: 10, MAX_RADIUS: 280, RING_WIDTH: 28 };
 
 // Ring fills from outermost (index 0, score 1) to innermost (index 9, score 10)
-// Classic ISSF target colour scheme: white → black → blue → red → gold
+// Muted ISSF palette so shot dots remain legible on every ring
 const RING_FILLS = [
-  '#f0f0f0', '#d4d4d4',  // score 1-2: white
-  '#2a2a2a', '#111111',  // score 3-4: black
-  '#3b82f6', '#1d4ed8',  // score 5-6: blue
-  '#ef4444', '#b91c1c',  // score 7-8: red
-  '#fbbf24', '#d97706',  // score 9-10: gold
+  '#cccccc', '#b0b0b0',  // score 1-2: light grey
+  '#333333', '#1e1e1e',  // score 3-4: near-black
+  '#4a72a8', '#2c5490',  // score 5-6: muted blue
+  '#b84040', '#8f2c2c',  // score 7-8: muted red
+  '#b8841e', '#906412',  // score 9-10: muted gold
 ];
 
 const RING_LABEL_COLORS = [
-  '#000', '#000',
-  '#fff', '#fff',
-  '#fff', '#fff',
-  '#fff', '#fff',
-  '#000', '#000',
+  '#444', '#444',  // grey rings  → dark label
+  '#aaa', '#aaa',  // black rings → light label
+  '#cde', '#cde',  // blue rings  → pale blue-white
+  '#fcc', '#fcc',  // red rings   → pale red-white
+  '#fde', '#fde',  // gold rings  → pale warm-white
 ];
 
+// Shot dot colour used in the list only (dots on canvas are always white)
 function scoreColor(score) {
-  if (score >= 9) return '#fbbf24';
-  if (score >= 7) return '#ef4444';
-  if (score >= 5) return '#3b82f6';
-  if (score >= 1) return '#d0d0d0';
-  return '#555555';
+  if (score >= 9) return '#f5c542';
+  if (score >= 7) return '#e06060';
+  if (score >= 5) return '#6090d8';
+  if (score >= 1) return '#a0a0a0';
+  return '#505050';
 }
 
 // ── State ─────────────────────────────────────────────────────────────
@@ -231,26 +232,31 @@ function renderCanvas() {
   ctx.moveTo(cx, cy - cr); ctx.lineTo(cx, cy + cr);
   ctx.stroke();
 
-  // Shots
+  // Shots — white fill + black outline so they're visible on every ring colour
   for (let idx = 0; idx < state.shots.length; idx++) {
     const shot = state.shots[idx];
     const sx = cx + (shot.x - 0.5) * BOARD.SIZE * scale;
     const sy = cy + (shot.y - 0.5) * BOARD.SIZE * scale;
+    const r  = 7;
 
-    ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur  = 4;
+    // Outer dark halo for extra contrast
     ctx.beginPath();
-    ctx.arc(sx, sy, 5, 0, Math.PI * 2);
-    ctx.fillStyle = scoreColor(shot.score);
+    ctx.arc(sx, sy, r + 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fill();
 
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.lineWidth = 1;
+    // White dot
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle   = '#ffffff';
+    ctx.strokeStyle = '#222222';
+    ctx.lineWidth   = 1.5;
+    ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle    = 'rgba(0,0,0,0.75)';
-    ctx.font         = 'bold 8px system-ui';
+    // Shot number
+    ctx.fillStyle    = '#111111';
+    ctx.font         = `bold ${Math.max(7, r - 1)}px system-ui`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(idx + 1, sx, sy);
