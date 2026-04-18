@@ -68,8 +68,8 @@ def _compute_homography(detected_centers):
 def _detect_red_dots(warped_img):
     """Returns list of (cx, cy) for every valid red blob in canonical space."""
     hsv = cv2.cvtColor(warped_img, cv2.COLOR_BGR2HSV)
-    mask_lo = cv2.inRange(hsv, np.array([0,   120, 120]), np.array([10,  255, 255]))
-    mask_hi = cv2.inRange(hsv, np.array([170, 120, 120]), np.array([180, 255, 255]))
+    mask_lo = cv2.inRange(hsv, np.array([0,   140, 140]), np.array([10,  255, 255]))
+    mask_hi = cv2.inRange(hsv, np.array([170, 140, 140]), np.array([180, 255, 255]))
     mask = cv2.bitwise_or(mask_lo, mask_hi)
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -77,10 +77,18 @@ def _detect_red_dots(warped_img):
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    valid = [c for c in contours if 15 < cv2.contourArea(c) < 3000]
 
     dots = []
-    for c in valid:
+    for c in contours:
+        area = cv2.contourArea(c)
+        if not (15 < area < 3000):
+            continue
+        # Circularity: 4π·area / perimeter² ≈ 1.0 for a circle, < 0.4 for streaks
+        perimeter = cv2.arcLength(c, True)
+        if perimeter == 0:
+            continue
+        if (4 * np.pi * area / (perimeter ** 2)) < 0.45:
+            continue
         M = cv2.moments(c)
         if M["m00"] > 0:
             dots.append((M["m10"] / M["m00"], M["m01"] / M["m00"]))

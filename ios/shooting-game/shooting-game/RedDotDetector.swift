@@ -12,12 +12,13 @@ struct DotDetectionResult {
 
 class RedDotDetector {
     // --- Tunable thresholds ---
-    var minRedValue: Float = 150
-    var minRedDominance: Float = 80
+    var minRedValue: Float = 160
+    var minRedDominance: Float = 100
     var minClusterSize: Int = 20
     var maxClusterSize: Int = 5000
-    /// Max distance (px) between a red pixel and a cluster centroid to be considered the same blob
-    var clusterMergeRadius: Int = 40
+    /// Max distance (px) between a red pixel and a cluster centroid to be considered the same blob.
+    /// Wider radius merges nearby lens-flare streaks into the main dot cluster.
+    var clusterMergeRadius: Int = 70
 
     private let stride = 2
 
