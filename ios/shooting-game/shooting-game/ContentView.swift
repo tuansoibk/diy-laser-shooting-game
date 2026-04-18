@@ -462,6 +462,7 @@ struct ResultView: View {
     let boardQuad: BoardQuad?
     let shot: ShotResult
 
+    private let resultCountdownSeconds = 3
     @State private var countdown = 3
     @State private var countdownTask: Task<Void, Never>? = nil
 
@@ -508,10 +509,10 @@ struct ResultView: View {
     }
 
     private func startCountdown() {
-        countdown = 3
+        countdown = resultCountdownSeconds
         countdownTask?.cancel()
         countdownTask = Task {
-            for remaining in stride(from: 2, through: 0, by: -1) {
+            for remaining in stride(from: resultCountdownSeconds - 1, through: 0, by: -1) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { countdown = remaining }
