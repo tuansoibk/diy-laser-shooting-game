@@ -10,9 +10,22 @@
 		ABFE88962F92F59800544DEC /* shooting-game.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "shooting-game.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		ABC5C3562F937752003FD246 /* Exceptions for "shooting-game" folder in "shooting-game" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = ABFE88952F92F59800544DEC /* shooting-game */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		ABFE88982F92F59800544DEC /* shooting-game */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				ABC5C3562F937752003FD246 /* Exceptions for "shooting-game" folder in "shooting-game" target */,
+			);
 			path = "shooting-game";
 			sourceTree = "<group>";
 		};
@@ -257,6 +270,7 @@
 				DEVELOPMENT_TEAM = 47Y4T9TGKB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "shooting-game/Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to detect laser dot on shooting target";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -295,6 +309,7 @@
 				DEVELOPMENT_TEAM = 47Y4T9TGKB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "shooting-game/Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to detect laser dot on shooting target";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
