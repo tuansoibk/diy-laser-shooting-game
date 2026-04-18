@@ -511,7 +511,7 @@ struct ResultView: View {
         countdown = 3
         countdownTask?.cancel()
         countdownTask = Task {
-            for remaining in stride(from: 4, through: 0, by: -1) {
+            for remaining in stride(from: 2, through: 0, by: -1) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { countdown = remaining }
