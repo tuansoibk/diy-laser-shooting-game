@@ -16,14 +16,6 @@
       <label>Backend URL</label>
       <input id="s-backend" type="url" placeholder="http://192.168.1.x:8000">
     </div>
-    <div class="field">
-      <label>Game ID</label>
-      <input id="s-game" type="number" min="1" placeholder="1">
-    </div>
-    <div class="field">
-      <label>Round ID</label>
-      <input id="s-round" type="number" min="1" placeholder="1">
-    </div>
     <button id="s-connect">Connect</button>
     <p id="s-error" class="error hidden"></p>
   </div>
@@ -37,6 +29,7 @@
       <span id="m-subtitle" class="subtitle"></span>
     </div>
     <div class="topbar-right">
+      <span id="m-round-badge" class="round-badge hidden"></span>
       <span id="m-status" class="status-dot" title="Polling"></span>
       <button id="m-change" class="btn-ghost">Change</button>
     </div>

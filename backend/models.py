@@ -39,6 +39,13 @@ class RoundDetail(BaseModel):
     ended_at: Optional[str]
     shots: List[ShotResponse]
 
+class CurrentSession(BaseModel):
+    game_id: int
+    player_name: str
+    round_id: int
+    round_number: int
+    round_ended: bool
+
 class DetectResponse(BaseModel):
     detected: bool
     multiple_dots: bool = False

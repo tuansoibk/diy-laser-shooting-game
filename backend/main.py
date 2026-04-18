@@ -6,7 +6,7 @@ from database import init_db, get_conn
 from models import (
     GameCreate, GameResponse, GameDetail,
     RoundResponse, RoundDetail,
-    ShotResponse, DetectResponse, List,
+    ShotResponse, DetectResponse, CurrentSession, List,
 )
 from cv_pipeline import process_frame
 
@@ -24,6 +24,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Current session
+# ---------------------------------------------------------------------------
+
+@app.get("/current", response_model=CurrentSession)
+def get_current():
+    with get_conn() as conn:
+        game = conn.execute(
+            "SELECT * FROM game ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not game:
+            raise HTTPException(404, "No games found")
+
+        round_row = conn.execute(
+            "SELECT * FROM round WHERE game_id = ? ORDER BY id DESC LIMIT 1",
+            (game["id"],),
+        ).fetchone()
+        if not round_row:
+            raise HTTPException(404, "No rounds found for current game")
+
+    return {
+        "game_id":      game["id"],
+        "player_name":  game["player_name"],
+        "round_id":     round_row["id"],
+        "round_number": round_row["round_number"],
+        "round_ended":  round_row["ended_at"] is not None,
+    }
 
 
 # ---------------------------------------------------------------------------

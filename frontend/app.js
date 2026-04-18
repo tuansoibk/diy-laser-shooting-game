@@ -13,13 +13,12 @@ const RING_FILLS = [
   '#fbbf24', '#d97706',  // score 9-10: gold
 ];
 
-// Label colour for each ring
 const RING_LABEL_COLORS = [
-  '#000', '#000',  // white
-  '#fff', '#fff',  // black
-  '#fff', '#fff',  // blue
-  '#fff', '#fff',  // red
-  '#000', '#000',  // gold
+  '#000', '#000',
+  '#fff', '#fff',
+  '#fff', '#fff',
+  '#fff', '#fff',
+  '#000', '#000',
 ];
 
 function scoreColor(score) {
@@ -33,43 +32,35 @@ function scoreColor(score) {
 // ── State ─────────────────────────────────────────────────────────────
 
 const state = {
-  backendURL: localStorage.getItem('backendURL') || 'http://192.168.1.1:8000',
-  gameId:    null,
-  roundId:   null,
-  shots:     [],
-  lastCount: 0,
-  pollTimer: null,
+  backendURL:  localStorage.getItem('backendURL') || 'http://192.168.1.1:8000',
+  gameId:      null,
+  roundId:     null,
+  shots:       [],
+  lastCount:   0,
+  roundEnded:  false,
+  pollTimer:   null,
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
 
-const setupEl  = $('setup');
-const mainEl   = $('main');
-const canvas   = $('canvas');
-const ctx      = canvas.getContext('2d');
+const setupEl = $('setup');
+const mainEl  = $('main');
+const canvas  = $('canvas');
+const ctx     = canvas.getContext('2d');
 
 // ── Boot ──────────────────────────────────────────────────────────────
 
 function init() {
-  const params = new URLSearchParams(window.location.search);
-
-  const backend = params.get('backend') || state.backendURL;
-  state.backendURL = backend;
-  $('s-backend').value = backend;
-
-  const gid = params.get('game_id');
-  const rid = params.get('round_id');
-  if (gid) $('s-game').value = gid;
-  if (rid) $('s-round').value = rid;
-
+  $('s-backend').value = state.backendURL;
   $('s-connect').addEventListener('click', onConnect);
-  $('m-change').addEventListener('click', onChangeSesssion);
+  $('m-change').addEventListener('click', onChangeSession);
   window.addEventListener('resize', () => { resizeCanvas(); renderCanvas(); });
 
-  if (gid && rid) {
-    connect(parseInt(gid), parseInt(rid));
+  // If backend URL is already known from localStorage, try to auto-connect
+  if (state.backendURL && state.backendURL !== 'http://192.168.1.1:8000') {
+    connect(state.backendURL);
   } else {
     resizeCanvas();
   }
@@ -79,49 +70,32 @@ function init() {
 
 function onConnect() {
   const backend = $('s-backend').value.trim().replace(/\/$/, '');
-  const gid = parseInt($('s-game').value);
-  const rid = parseInt($('s-round').value);
-
-  if (!backend || !gid || !rid) { showError('Please fill in all fields.'); return; }
-
-  state.backendURL = backend;
-  localStorage.setItem('backendURL', backend);
+  if (!backend) { showError('Please enter the backend URL.'); return; }
   hideError();
-  connect(gid, rid);
+  connect(backend);
 }
 
-function onChangeSesssion() {
+function onChangeSession() {
   stopPolling();
   mainEl.classList.add('hidden');
   setupEl.classList.remove('hidden');
 }
 
-// ── Session connect ───────────────────────────────────────────────────
+// ── Connect: fetch /current and start session ─────────────────────────
 
-async function connect(gameId, roundId) {
-  state.gameId  = gameId;
-  state.roundId = roundId;
-  state.shots   = [];
-  state.lastCount = 0;
+async function connect(backendURL) {
+  state.backendURL = backendURL;
+  localStorage.setItem('backendURL', backendURL);
 
-  let playerName = 'Player';
+  let session;
   try {
-    const game = await fetchJSON(`/games/${gameId}`);
-    playerName = game.player_name;
+    session = await fetchJSON('/current');
   } catch (e) {
-    showError(`Cannot reach backend: ${e.message}`);
+    showError(`Cannot reach backend or no active game: ${e.message}`);
     return;
   }
 
-  $('m-player').textContent   = playerName;
-  $('m-subtitle').textContent = `Game #${gameId} · Round #${roundId}`;
-
-  // Persist session in URL so the page can be bookmarked / shared
-  const url = new URL(window.location);
-  url.searchParams.set('backend',  state.backendURL);
-  url.searchParams.set('game_id',  gameId);
-  url.searchParams.set('round_id', roundId);
-  history.replaceState({}, '', url);
+  applySession(session);
 
   setupEl.classList.add('hidden');
   mainEl.classList.remove('hidden');
@@ -129,6 +103,30 @@ async function connect(gameId, roundId) {
   resizeCanvas();
   renderCanvas();
   startPolling();
+}
+
+function applySession(session) {
+  const changed = session.round_id !== state.roundId;
+
+  state.gameId     = session.game_id;
+  state.roundId    = session.round_id;
+  state.roundEnded = session.round_ended;
+
+  if (changed) {
+    state.shots     = [];
+    state.lastCount = 0;
+  }
+
+  $('m-player').textContent   = session.player_name;
+  $('m-subtitle').textContent = `Game #${session.game_id} · Round #${session.round_number}`;
+
+  const badge = $('m-round-badge');
+  if (session.round_ended) {
+    badge.textContent = 'Round ended';
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
 }
 
 // ── Polling ───────────────────────────────────────────────────────────
@@ -145,9 +143,15 @@ function stopPolling() {
 async function poll() {
   const dot = $('m-status');
   try {
-    const shots = await fetchJSON(`/rounds/${state.roundId}/shots`);
+    // Check for a new round / game first
+    const session = await fetchJSON('/current');
+    applySession(session);
+
+    // Then fetch shots for the current round
+    const shots  = await fetchJSON(`/rounds/${state.roundId}/shots`);
     const hasNew = shots.length > state.lastCount;
-    state.shots = shots;
+    state.shots  = shots;
+
     renderCanvas();
     renderStats();
     renderShotList(hasNew);
@@ -182,16 +186,13 @@ function renderCanvas() {
   const S  = canvas.width || 400;
   const cx = S / 2;
   const cy = S / 2;
-  // Scale so MAX_RADIUS maps to 44% of the canvas half-width
   const scale = (S * 0.44) / BOARD.MAX_RADIUS;
 
   ctx.clearRect(0, 0, S, S);
-
-  // Background
   ctx.fillStyle = '#1c1c1e';
   ctx.fillRect(0, 0, S, S);
 
-  // Rings — draw from outermost to innermost so each covers the one before
+  // Rings — outermost to innermost
   for (let i = BOARD.NUM_RINGS - 1; i >= 0; i--) {
     const r = (i + 1) * BOARD.RING_WIDTH * scale;
     ctx.beginPath();
@@ -203,8 +204,8 @@ function renderCanvas() {
     ctx.stroke();
   }
 
-  // Score labels — upper-right quadrant of each ring
-  ctx.textAlign = 'center';
+  // Score labels in upper-right quadrant of each ring
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   const labelAngle = -Math.PI / 4;
   for (let i = 0; i < BOARD.NUM_RINGS; i++) {
@@ -235,7 +236,6 @@ function renderCanvas() {
 
     ctx.shadowColor = 'rgba(0,0,0,0.7)';
     ctx.shadowBlur  = 4;
-
     ctx.beginPath();
     ctx.arc(sx, sy, 5, 0, Math.PI * 2);
     ctx.fillStyle = scoreColor(shot.score);
@@ -246,19 +246,17 @@ function renderCanvas() {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Shot number label
-    ctx.fillStyle   = 'rgba(0,0,0,0.75)';
-    ctx.font        = 'bold 8px system-ui';
-    ctx.textAlign   = 'center';
+    ctx.fillStyle    = 'rgba(0,0,0,0.75)';
+    ctx.font         = 'bold 8px system-ui';
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(idx + 1, sx, sy);
   }
 
-  // "Waiting" hint when no shots yet
   if (state.shots.length === 0) {
-    ctx.font      = '13px system-ui';
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.textAlign = 'center';
+    ctx.font         = '13px system-ui';
+    ctx.fillStyle    = 'rgba(255,255,255,0.2)';
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('Waiting for shots…', cx, cy + BOARD.MAX_RADIUS * scale + 18);
   }
@@ -295,12 +293,11 @@ function renderShotList(hasNew) {
     return;
   }
 
-  // Newest first
   const html = [...shots].reverse().map((shot, revIdx) => {
     const num   = shots.length - revIdx;
     const isNew = hasNew && revIdx === 0;
-    const time  = parseTime(shot.created_at);
     const color = scoreColor(shot.score);
+    const time  = parseTime(shot.created_at);
     return `<div class="shot-row${isNew ? ' new' : ''}">
       <span class="shot-num">#${num}</span>
       <span class="shot-dot" style="background:${color}"></span>
@@ -313,7 +310,7 @@ function renderShotList(hasNew) {
   list.innerHTML = html;
 }
 
-// SQLite CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS" (UTC, no timezone)
+// SQLite CURRENT_TIMESTAMP: "YYYY-MM-DD HH:MM:SS" (UTC, no tz suffix)
 function parseTime(str) {
   if (!str) return '';
   try {
@@ -322,7 +319,7 @@ function parseTime(str) {
   } catch { return str.slice(11, 19); }
 }
 
-// ── Error helpers ─────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 
 function showError(msg) {
   const el = $('s-error');
