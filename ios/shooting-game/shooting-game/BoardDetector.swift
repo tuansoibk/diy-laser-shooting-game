@@ -22,6 +22,16 @@ struct BoardQuad {
 }
 
 class BoardDetector {
+    /// Call once at startup on a background thread to force Vision to load its
+    /// rectangle-detection model. Without this the first real detect() call blocks
+    /// for several seconds while the model initialises.
+    func warmUp() {
+        var buf: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &buf)
+        guard let dummy = buf else { return }
+        _ = detect(in: dummy)
+    }
+
     func detect(in pixelBuffer: CVPixelBuffer) -> BoardQuad? {
         let request = VNDetectRectanglesRequest()
         request.minimumAspectRatio  = 0.4

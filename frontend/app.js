@@ -40,6 +40,8 @@ const state = {
   lastCount:   0,
   roundEnded:  false,
   pollTimer:   null,
+  paused:      false,
+  maxShots:    parseInt(localStorage.getItem('maxShots') || '10'),
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────────
@@ -57,6 +59,13 @@ function init() {
   $('s-backend').value = localStorage.getItem('backendURL') || '';
   $('s-connect').addEventListener('click', onConnect);
   $('m-change').addEventListener('click', onChangeSession);
+  $('m-poll-toggle').addEventListener('click', togglePolling);
+  $('m-settings').addEventListener('click', openSettings);
+  $('cfg-cancel').addEventListener('click', closeSettings);
+  $('cfg-save').addEventListener('click', saveSettings);
+  $('sp-dismiss').addEventListener('click', closeSplash);
+  $('round-splash').addEventListener('click', e => { if (e.target === $('round-splash')) closeSplash(); });
+  $('settings-modal').addEventListener('click', e => { if (e.target === $('settings-modal')) closeSettings(); });
   $('c-new-game').addEventListener('click', newGame);
   $('c-new-round').addEventListener('click', newRound);
   $('c-end-round').addEventListener('click', endRound);
@@ -152,12 +161,25 @@ function applySession(session) {
 // ── Polling ───────────────────────────────────────────────────────────
 
 function startPolling() {
+  state.paused = false;
   poll();
   state.pollTimer = setInterval(poll, 1500);
+  $('m-poll-toggle').textContent = 'Pause';
 }
 
 function stopPolling() {
   if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
+
+function togglePolling() {
+  if (state.pollTimer) {
+    stopPolling();
+    state.paused = true;
+    $('m-poll-toggle').textContent = 'Resume';
+    $('m-status').className = 'status-dot';
+  } else {
+    startPolling();
+  }
 }
 
 async function poll() {
@@ -175,10 +197,21 @@ async function poll() {
       const shots  = await fetchJSON(`/rounds/${state.roundId}/shots`);
       const hasNew = shots.length > state.lastCount;
       state.shots  = shots;
+      state.lastCount = shots.length;
       renderCanvas();
       renderStats();
       renderShotList(hasNew);
-      state.lastCount = shots.length;
+
+      // Auto-end when shot limit reached
+      if (!state.roundEnded && shots.length >= state.maxShots) {
+        const finalShots = shots;
+        try {
+          await patchJSON(`/rounds/${state.roundId}/end`);
+          showRoundEndSplash(finalShots);
+          await poll();
+        } catch (e) { console.error('Auto-end error:', e); }
+        return;
+      }
     } else {
       renderCanvas();
       renderStats();
@@ -255,12 +288,73 @@ async function endRound() {
   if (!state.roundId) return;
   $('c-end-round').disabled = true;
   try {
+    const finalShots = [...state.shots];
     await patchJSON(`/rounds/${state.roundId}/end`);
+    showRoundEndSplash(finalShots);
     await poll();
   } catch (e) {
     console.error('End round error:', e);
     updateControlButtons();
   }
+}
+
+// ── Settings ──────────────────────────────────────────────────────────
+
+function openSettings() {
+  $('cfg-max-shots').value = state.maxShots;
+  $('settings-modal').classList.remove('hidden');
+}
+
+function closeSettings() {
+  $('settings-modal').classList.add('hidden');
+}
+
+function saveSettings() {
+  const val = parseInt($('cfg-max-shots').value);
+  if (val >= 1) {
+    state.maxShots = val;
+    localStorage.setItem('maxShots', val);
+  }
+  closeSettings();
+}
+
+// ── Round-end splash ──────────────────────────────────────────────────
+
+function showRoundEndSplash(shots) {
+  if (!shots.length) return;
+  const total = shots.reduce((s, r) => s + r.score, 0);
+  const best  = Math.max(...shots.map(r => r.score));
+  const avg   = total / shots.length;
+
+  $('sp-count').textContent = `${shots.length} shot${shots.length !== 1 ? 's' : ''}`;
+
+  // Reset then animate counts
+  $('sp-total').textContent = '0';
+  $('sp-best').textContent  = '0';
+  $('sp-avg').textContent   = '0.0';
+
+  $('round-splash').classList.remove('hidden');
+
+  setTimeout(() => animateCount($('sp-total'), total), 80);
+  setTimeout(() => animateCount($('sp-best'),  best),  200);
+  setTimeout(() => animateCount($('sp-avg'),   avg, true), 320);
+}
+
+function closeSplash() {
+  $('round-splash').classList.add('hidden');
+}
+
+function animateCount(el, target, isFloat = false) {
+  const duration = 900;
+  const start = performance.now();
+  (function step(now) {
+    const t    = Math.min((now - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    el.textContent = isFloat
+      ? (ease * target).toFixed(1)
+      : Math.round(ease * target);
+    if (t < 1) requestAnimationFrame(step);
+  })(start);
 }
 
 // ── Canvas ────────────────────────────────────────────────────────────

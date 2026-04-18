@@ -6,6 +6,8 @@ class CameraManager: NSObject {
     private let videoOutput = AVCaptureVideoDataOutput()
     // Serial queue — isArmed flag and frame processing both run here, so no lock needed
     let processingQueue = DispatchQueue(label: "camera.processing", qos: .userInteractive)
+    // Separate queue for session start/stop so it never blocks processingQueue
+    private let sessionQueue = DispatchQueue(label: "camera.session")
 
     var onFrame: ((CVPixelBuffer) -> Void)?
 
@@ -47,13 +49,13 @@ class CameraManager: NSObject {
     }
 
     func start() {
-        processingQueue.async { [weak self] in
+        sessionQueue.async { [weak self] in
             self?.session.startRunning()
         }
     }
 
     func stop() {
-        processingQueue.async { [weak self] in
+        sessionQueue.async { [weak self] in
             self?.session.stopRunning()
         }
     }

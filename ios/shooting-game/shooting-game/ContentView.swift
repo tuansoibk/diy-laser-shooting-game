@@ -25,7 +25,8 @@ class AppViewModel: ObservableObject {
     let camera = CameraManager()
     private let dotDetector   = RedDotDetector()
     private let boardDetector = BoardDetector()
-    private var isArmed = false   // processing queue only
+    // nonisolated so reads/writes on processingQueue never hop to MainActor
+    private nonisolated(unsafe) var isArmed = false
 
     var api: APIClient { APIClient(baseURL: backendURL) }
 
@@ -37,6 +38,9 @@ class AppViewModel: ObservableObject {
         if !backendURL.isEmpty {
             appState = .idle
         }
+        // Pre-warm Vision so the first real boardDetector.detect() call is instant
+        let bd = boardDetector
+        DispatchQueue.global(qos: .userInitiated).async { bd.warmUp() }
     }
 
     // MARK: Connection
@@ -50,12 +54,12 @@ class AppViewModel: ObservableObject {
     // MARK: Detection
 
     func arm() {
-        camera.processingQueue.async { self.isArmed = true }
+        isArmed = true
         appState = .armed
     }
 
     func disarm() {
-        camera.processingQueue.async { self.isArmed = false }
+        isArmed = false
         appState = .idle
     }
 
