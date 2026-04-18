@@ -4,6 +4,9 @@
 # CV generated outputs (test fixtures kept, result artifacts ignored)
 cv/result_*.png
 
+# Backend runtime data
+backend/game.db
+
 # Python
 __pycache__/
 *.pyc
