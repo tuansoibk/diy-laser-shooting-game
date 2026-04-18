@@ -10,7 +10,7 @@ from models import (
     RoundResponse, RoundDetail,
     ShotResponse, DetectResponse, CurrentSession, List,
 )
-from cv_pipeline import process_frame
+from cv_pipeline import process_frame, debug_frame
 
 
 @asynccontextmanager
@@ -179,6 +179,29 @@ def get_shots(round_id: int):
             "SELECT * FROM shot WHERE round_id = ? ORDER BY created_at", (round_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Debug
+# ---------------------------------------------------------------------------
+
+@app.post("/debug/detect")
+async def debug_detect(frame: UploadFile = File(...)):
+    """
+    Drop-in replacement for /rounds/:id/detect that returns full pipeline
+    diagnostics instead of persisting a shot.
+
+    Response fields:
+      stage        — "decode" | "aruco" | "dots" | "ok"
+      aruco_ids    — ArUco marker IDs that were found (should be [0,1,2,3])
+      contours     — every red blob found, with area / circularity / hsv /
+                     passed / fail_reason
+      result       — same dict as process_frame, or null
+      debug_image  — base64 JPEG: left half = warped board with contours
+                     annotated, right half = HSV mask
+    """
+    jpeg_bytes = await frame.read()
+    return debug_frame(jpeg_bytes)
 
 
 # ---------------------------------------------------------------------------
