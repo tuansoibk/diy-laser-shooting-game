@@ -1,5 +1,7 @@
+import os
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from database import init_db, get_conn
@@ -177,3 +179,11 @@ def get_shots(round_id: int):
             "SELECT * FROM shot WHERE round_id = ? ORDER BY created_at", (round_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Frontend — must be mounted last so API routes take priority
+# ---------------------------------------------------------------------------
+
+_FRONTEND = os.path.join(os.path.dirname(__file__), "..", "frontend")
+app.mount("/", StaticFiles(directory=_FRONTEND, html=True), name="frontend")

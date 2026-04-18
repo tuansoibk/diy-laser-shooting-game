@@ -32,7 +32,7 @@ function scoreColor(score) {
 // ── State ─────────────────────────────────────────────────────────────
 
 const state = {
-  backendURL:  localStorage.getItem('backendURL') || 'http://192.168.1.1:8000',
+  backendURL:  localStorage.getItem('backendURL') || window.location.origin,
   gameId:      null,
   roundId:     null,
   shots:       [],
@@ -53,14 +53,17 @@ const ctx     = canvas.getContext('2d');
 // ── Boot ──────────────────────────────────────────────────────────────
 
 function init() {
-  $('s-backend').value = state.backendURL;
+  $('s-backend').value = localStorage.getItem('backendURL') || '';
   $('s-connect').addEventListener('click', onConnect);
   $('m-change').addEventListener('click', onChangeSession);
   window.addEventListener('resize', () => { resizeCanvas(); renderCanvas(); });
 
-  // If backend URL is already known from localStorage, try to auto-connect
-  if (state.backendURL && state.backendURL !== 'http://192.168.1.1:8000') {
-    connect(state.backendURL);
+  // Auto-connect: use saved URL or, if served from FastAPI, use same origin
+  const saved = localStorage.getItem('backendURL');
+  if (saved) {
+    connect(saved);
+  } else if (window.location.protocol !== 'file:') {
+    connect(window.location.origin);
   } else {
     resizeCanvas();
   }
