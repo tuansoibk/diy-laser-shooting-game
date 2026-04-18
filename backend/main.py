@@ -45,16 +45,13 @@ def get_current():
             "SELECT * FROM round WHERE game_id = ? ORDER BY id DESC LIMIT 1",
             (game["id"],),
         ).fetchone()
-        if not round_row:
-            raise HTTPException(404, "No rounds found for current game")
 
-    return {
-        "game_id":      game["id"],
-        "player_name":  game["player_name"],
-        "round_id":     round_row["id"],
-        "round_number": round_row["round_number"],
-        "round_ended":  round_row["ended_at"] is not None,
-    }
+    result = {"game_id": game["id"], "player_name": game["player_name"]}
+    if round_row:
+        result["round_id"]     = round_row["id"]
+        result["round_number"] = round_row["round_number"]
+        result["round_ended"]  = round_row["ended_at"] is not None
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +137,51 @@ def get_round(round_id: int):
 # ---------------------------------------------------------------------------
 # Shots / detection
 # ---------------------------------------------------------------------------
+
+@app.post("/detect", response_model=DetectResponse)
+async def detect_current(
+    frame: UploadFile = File(...),
+    hint_x: Optional[float] = Form(None),
+    hint_y: Optional[float] = Form(None),
+):
+    """
+    Used by the iOS app. Finds the current active round automatically so
+    the app does not need to know anything about games or rounds.
+    """
+    with get_conn() as conn:
+        game = conn.execute(
+            "SELECT * FROM game ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not game:
+            raise HTTPException(404, "No active game — create one from the web interface")
+
+        round_row = conn.execute(
+            "SELECT * FROM round WHERE game_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+            (game["id"],),
+        ).fetchone()
+        if not round_row:
+            raise HTTPException(404, "No active round — start a round from the web interface")
+
+        round_id = round_row["id"]
+
+    jpeg_bytes = await frame.read()
+    result = process_frame(jpeg_bytes, hint_x=hint_x, hint_y=hint_y)
+
+    if result is None:
+        return DetectResponse(detected=False)
+    if result.get("multiple_dots"):
+        return DetectResponse(detected=False, multiple_dots=True)
+
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO shot (round_id, score, x, y, distance_px) VALUES (?, ?, ?, ?, ?) "
+            "RETURNING id",
+            (round_id, result["score"], result["x"], result["y"], result["distance_px"]),
+        )
+        shot_id = cur.fetchone()["id"]
+
+    return DetectResponse(detected=True, shot_id=shot_id, **result)
+
 
 @app.post("/rounds/{round_id}/detect", response_model=DetectResponse)
 async def detect_shot(

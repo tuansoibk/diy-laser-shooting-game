@@ -5,25 +5,22 @@ import Combine
 // MARK: - App state
 
 enum AppState {
-    case setup
-    case roundMenu(gameId: Int)
-    case idle(gameId: Int, roundId: Int)
-    case armed(gameId: Int, roundId: Int)
-    case posting(gameId: Int, roundId: Int, image: UIImage, dots: [CGPoint])
-    case result(gameId: Int, roundId: Int, image: UIImage, dots: [CGPoint], board: BoardQuad?, shot: ShotResult)
+    case connect
+    case idle
+    case armed
+    case posting(image: UIImage, dots: [CGPoint])
+    case result(image: UIImage, dots: [CGPoint], board: BoardQuad?, shot: ShotResult)
 }
 
 // MARK: - ViewModel
 
 @MainActor
 class AppViewModel: ObservableObject {
-    @Published var appState: AppState = .setup
+    @Published var appState: AppState = .connect
     @Published var exposureLocked = false
     @Published var errorMessage: String? = nil
 
-    // Persisted settings
-    @AppStorage("backendURL")  var backendURL: String = "http://192.168.1.1:8000"
-    @AppStorage("playerName")  var playerName: String = "Player"
+    @AppStorage("backendURL") var backendURL: String = ""
 
     let camera = CameraManager()
     private let dotDetector   = RedDotDetector()
@@ -37,47 +34,29 @@ class AppViewModel: ObservableObject {
             self?.processFrame(pixelBuffer)
         }
         camera.start()
-    }
-
-    // MARK: Setup
-
-    func startGame() async {
-        errorMessage = nil
-        do {
-            let game = try await api.createGame(playerName: playerName)
-            appState = .roundMenu(gameId: game.id)
-        } catch {
-            errorMessage = "Cannot reach backend: \(error.localizedDescription)"
+        if !backendURL.isEmpty {
+            appState = .idle
         }
     }
 
-    // MARK: Round management
+    // MARK: Connection
 
-    func startRound(gameId: Int) async {
-        errorMessage = nil
-        do {
-            let round = try await api.createRound(gameId: gameId)
-            appState = .idle(gameId: gameId, roundId: round.id)
-        } catch {
-            errorMessage = "Failed to start round: \(error.localizedDescription)"
-        }
-    }
-
-    func endRound(gameId: Int, roundId: Int) async {
-        try? await api.endRound(roundId: roundId)
-        appState = .roundMenu(gameId: gameId)
+    func connect(url: String) {
+        backendURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+                       .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        appState = .idle
     }
 
     // MARK: Detection
 
-    func arm(gameId: Int, roundId: Int) {
+    func arm() {
         camera.processingQueue.async { self.isArmed = true }
-        appState = .armed(gameId: gameId, roundId: roundId)
+        appState = .armed
     }
 
-    func disarm(gameId: Int, roundId: Int) {
+    func disarm() {
         camera.processingQueue.async { self.isArmed = false }
-        appState = .idle(gameId: gameId, roundId: roundId)
+        appState = .idle
     }
 
     func lockExposure() {
@@ -108,39 +87,35 @@ class AppViewModel: ObservableObject {
         guard let jpeg = image.jpegData(compressionQuality: 0.85) else { return }
         let dots = results.map { $0.normalizedCenter }
 
-        // Best inside dot (largest cluster) used as a position hint for the backend
+        // Best inside dot (largest cluster) sent as a position hint to the backend
         let insideDots = boardQuad == nil
             ? results
             : results.filter { boardQuad!.contains($0.normalizedCenter) }
         let hint = insideDots.max(by: { $0.clusterSize < $1.clusterSize })?.normalizedCenter
 
         DispatchQueue.main.async {
-            guard case .armed(let gameId, let roundId) = self.appState else { return }
-            self.appState = .posting(gameId: gameId, roundId: roundId, image: image, dots: dots)
-            Task { await self.submitShot(gameId: gameId, roundId: roundId,
-                                         image: image, dots: dots, board: boardQuad,
+            guard case .armed = self.appState else { return }
+            self.appState = .posting(image: image, dots: dots)
+            Task { await self.submitShot(image: image, dots: dots, board: boardQuad,
                                          jpeg: jpeg, hint: hint) }
         }
     }
 
-    private func submitShot(gameId: Int, roundId: Int,
-                             image: UIImage, dots: [CGPoint], board: BoardQuad?,
+    private func submitShot(image: UIImage, dots: [CGPoint], board: BoardQuad?,
                              jpeg: Data, hint: CGPoint?) async {
         do {
-            let shot = try await api.detectShot(roundId: roundId, jpeg: jpeg,
+            let shot = try await api.detectShot(jpeg: jpeg,
                                                 hintX: hint.map { Double($0.x) },
                                                 hintY: hint.map { Double($0.y) })
             if shot.multipleDots {
-                // Multiple dots found — re-arm and let user retry
                 errorMessage = "Multiple dots detected — please retry"
-                arm(gameId: gameId, roundId: roundId)
+                arm()
                 return
             }
-            appState = .result(gameId: gameId, roundId: roundId,
-                               image: image, dots: dots, board: board, shot: shot)
+            appState = .result(image: image, dots: dots, board: board, shot: shot)
         } catch {
             errorMessage = "Backend error: \(error.localizedDescription)"
-            appState = .idle(gameId: gameId, roundId: roundId)
+            appState = .idle
         }
     }
 }
@@ -155,19 +130,16 @@ struct ContentView: View {
             Color.black.ignoresSafeArea()
 
             switch vm.appState {
-            case .setup:
-                SetupView(vm: vm)
-            case .roundMenu(let gameId):
-                RoundMenuView(vm: vm, gameId: gameId)
-            case .idle(let gameId, let roundId):
-                IdleView(vm: vm, gameId: gameId, roundId: roundId)
-            case .armed(let gameId, let roundId):
-                ArmedView(vm: vm, gameId: gameId, roundId: roundId)
-            case .posting(_, _, let image, let dots):
+            case .connect:
+                ConnectView(vm: vm)
+            case .idle:
+                IdleView(vm: vm)
+            case .armed:
+                ArmedView(vm: vm)
+            case .posting(let image, let dots):
                 PostingView(image: image, dots: dots)
-            case .result(let gameId, let roundId, let image, let dots, let board, let shot):
-                ResultView(vm: vm, gameId: gameId, roundId: roundId,
-                           image: image, normalizedDots: dots, boardQuad: board, shot: shot)
+            case .result(let image, let dots, let board, let shot):
+                ResultView(vm: vm, image: image, normalizedDots: dots, boardQuad: board, shot: shot)
             }
 
             // Floating error toast
@@ -208,115 +180,94 @@ struct CameraPreview: UIViewRepresentable {
     }
 }
 
-// MARK: - Setup view
+// MARK: - Connect view
 
-struct SetupView: View {
+struct ConnectView: View {
     @ObservedObject var vm: AppViewModel
-    @State private var connecting = false
+    @State private var url: String = ""
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Text("Shooting Game")
-                    .font(.largeTitle.bold())
-                    .foregroundColor(.white)
-                    .padding(.top, 80)
+        VStack(spacing: 24) {
+            Spacer()
 
-                VStack(alignment: .leading, spacing: 8) {
-                    label("Player name")
-                    TextField("Player", text: $vm.playerName)
-                        .textFieldStyle(.plain)
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(8)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    label("Backend URL")
-                    TextField("http://192.168.x.x:8000", text: $vm.backendURL)
-                        .textFieldStyle(.plain)
-                        .foregroundColor(.white)
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                        .padding(12)
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(8)
-                }
-
-                Button {
-                    connecting = true
-                    Task {
-                        await vm.startGame()
-                        connecting = false
-                    }
-                } label: {
-                    HStack {
-                        if connecting { ProgressView().tint(.black) }
-                        Text(connecting ? "Connecting…" : "Start Game")
-                            .font(.headline.bold())
-                    }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.green)
-                    .cornerRadius(12)
-                }
-                .disabled(connecting)
-                .padding(.top, 8)
-            }
-            .padding(.horizontal, 32)
-        }
-    }
-
-    private func label(_ text: String) -> some View {
-        Text(text).font(.caption.bold()).foregroundColor(.white.opacity(0.6))
-    }
-}
-
-// MARK: - Round menu
-
-struct RoundMenuView: View {
-    @ObservedObject var vm: AppViewModel
-    let gameId: Int
-    @State private var starting = false
-
-    var body: some View {
-        VStack(spacing: 32) {
-            Text("Game #\(gameId)")
-                .font(.title2.bold())
-                .foregroundColor(.white.opacity(0.5))
-
-            Text(vm.playerName)
+            Text("Shooting Game")
                 .font(.largeTitle.bold())
                 .foregroundColor(.white)
 
-            Button {
-                starting = true
-                Task {
-                    await vm.startRound(gameId: gameId)
-                    starting = false
-                }
-            } label: {
-                HStack {
-                    if starting { ProgressView().tint(.black) }
-                    Text(starting ? "Starting…" : "Start Round")
-                        .font(.title2.bold())
-                }
-                .foregroundColor(.black)
-                .padding(.horizontal, 48)
-                .padding(.vertical, 16)
-                .background(Color.green)
-                .cornerRadius(12)
-            }
-            .disabled(starting)
+            Text("Enter the backend server address")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.5))
 
-            Button("New Game") {
-                vm.appState = .setup
+            VStack(alignment: .leading, spacing: 6) {
+                Text("SERVER URL")
+                    .font(.caption.bold())
+                    .foregroundColor(.white.opacity(0.5))
+                    .tracking(1)
+                TextField("http://192.168.x.x:8000", text: $url)
+                    .textFieldStyle(.plain)
+                    .foregroundColor(.white)
+                    .keyboardType(.URL)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .padding(12)
+                    .background(Color.white.opacity(0.1))
+                    .cornerRadius(8)
             }
-            .foregroundColor(.white.opacity(0.5))
-            .font(.subheadline)
+
+            Button {
+                vm.connect(url: url)
+            } label: {
+                Text("Connect")
+                    .font(.headline.bold())
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(url.trimmingCharacters(in: .whitespaces).isEmpty
+                                ? Color.white.opacity(0.3) : Color.green)
+                    .cornerRadius(12)
+            }
+            .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            Spacer()
         }
+        .padding(.horizontal, 32)
+        .onAppear { url = vm.backendURL }
+    }
+}
+
+// MARK: - Server change sheet
+
+struct ServerSheet: View {
+    @ObservedObject var vm: AppViewModel
+    @Binding var isPresented: Bool
+    @State private var url: String = ""
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Server address") {
+                    TextField("http://192.168.x.x:8000", text: $url)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+            }
+            .navigationTitle("Change Server")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        vm.connect(url: url)
+                        isPresented = false
+                    }
+                    .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .onAppear { url = vm.backendURL }
     }
 }
 
@@ -324,65 +275,64 @@ struct RoundMenuView: View {
 
 struct IdleView: View {
     @ObservedObject var vm: AppViewModel
-    let gameId: Int
-    let roundId: Int
+    @State private var showServerSheet = false
 
     var body: some View {
         ZStack {
             CameraPreview(session: vm.camera.session).ignoresSafeArea()
 
             VStack {
-                statusBar
+                topBar
                 Spacer()
-                buttons
+                bottomButtons
             }
+        }
+        .sheet(isPresented: $showServerSheet) {
+            ServerSheet(vm: vm, isPresented: $showServerSheet)
         }
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 4) {
-                Image(systemName: vm.exposureLocked ? "lock.fill" : "lock.open")
-                Text(vm.exposureLocked ? "Locked" : "Auto")
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button { showServerSheet = true } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "network")
+                    Text(serverHost)
+                }
+                .font(.caption.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.black.opacity(0.55))
+                .cornerRadius(8)
             }
-            .foregroundColor(vm.exposureLocked ? .yellow : .white.opacity(0.5))
-
-            Divider().frame(height: 14).background(Color.white.opacity(0.3))
-
-            Text("Round #\(roundId)")
-                .foregroundColor(.white.opacity(0.7))
         }
-        .font(.caption.bold())
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(Color.black.opacity(0.55))
-        .cornerRadius(8)
         .padding(.top, 56)
+        .padding(.horizontal, 16)
     }
 
-    private var buttons: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                Button { vm.lockExposure() } label: {
-                    Label("Lock Exp.", systemImage: "lock")
-                        .font(.subheadline.bold()).foregroundColor(.black)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .background(Color.yellow).cornerRadius(10)
-                }
-                Button { vm.arm(gameId: gameId, roundId: roundId) } label: {
-                    Text("Ready")
-                        .font(.title2.bold()).foregroundColor(.white)
-                        .padding(.horizontal, 36).padding(.vertical, 12)
-                        .background(Color.green).cornerRadius(10)
-                }
+    private var bottomButtons: some View {
+        HStack(spacing: 12) {
+            Button { vm.lockExposure() } label: {
+                Label("Lock Exp.", systemImage: vm.exposureLocked ? "lock.fill" : "lock.open")
+                    .font(.subheadline.bold())
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .background(vm.exposureLocked ? Color.yellow : Color.white.opacity(0.9))
+                    .cornerRadius(10)
             }
-            Button {
-                Task { await vm.endRound(gameId: gameId, roundId: roundId) }
-            } label: {
-                Text("End Round")
-                    .font(.subheadline).foregroundColor(.white.opacity(0.6))
+            Button { vm.arm() } label: {
+                Text("Ready")
+                    .font(.title2.bold()).foregroundColor(.white)
+                    .padding(.horizontal, 36).padding(.vertical, 12)
+                    .background(Color.green).cornerRadius(10)
             }
         }
         .padding(.bottom, 52)
+    }
+
+    private var serverHost: String {
+        URL(string: vm.backendURL)?.host ?? vm.backendURL
     }
 }
 
@@ -390,8 +340,6 @@ struct IdleView: View {
 
 struct ArmedView: View {
     @ObservedObject var vm: AppViewModel
-    let gameId: Int
-    let roundId: Int
 
     var body: some View {
         ZStack {
@@ -399,7 +347,7 @@ struct ArmedView: View {
             VStack {
                 ScanningBadge().padding(.top, 56)
                 Spacer()
-                Button { vm.disarm(gameId: gameId, roundId: roundId) } label: {
+                Button { vm.disarm() } label: {
                     Label("Stop", systemImage: "stop.circle")
                         .font(.subheadline.bold()).foregroundColor(.white)
                         .padding(.horizontal, 24).padding(.vertical, 12)
@@ -455,8 +403,6 @@ struct PostingView: View {
 
 struct ResultView: View {
     @ObservedObject var vm: AppViewModel
-    let gameId: Int
-    let roundId: Int
     let image: UIImage
     let normalizedDots: [CGPoint]
     let boardQuad: BoardQuad?
@@ -492,7 +438,6 @@ struct ResultView: View {
             }
 
             VStack {
-                // Score badge
                 if shot.detected, let score = shot.score {
                     Text("\(score)")
                         .font(.system(size: 72, weight: .black))
@@ -518,7 +463,7 @@ struct ResultView: View {
                 await MainActor.run { countdown = remaining }
             }
             guard !Task.isCancelled else { return }
-            await MainActor.run { vm.arm(gameId: gameId, roundId: roundId) }
+            await MainActor.run { vm.arm() }
         }
     }
 
@@ -540,30 +485,18 @@ struct ResultView: View {
                     .font(.subheadline).foregroundColor(.orange)
             }
 
-            HStack(spacing: 12) {
-                Button {
-                    countdownTask?.cancel()
-                    vm.arm(gameId: gameId, roundId: roundId)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Next Shot")
-                        Text("(\(countdown))")
-                            .monospacedDigit()
-                            .foregroundColor(.white.opacity(0.7))
-                    }
-                    .font(.title2.bold()).foregroundColor(.white)
-                    .padding(.horizontal, 28).padding(.vertical, 14)
-                    .background(Color.green).cornerRadius(10)
+            Button {
+                countdownTask?.cancel()
+                vm.arm()
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Next Shot")
+                    Text("(\(countdown))").monospacedDigit()
+                        .foregroundColor(.white.opacity(0.7))
                 }
-                Button {
-                    countdownTask?.cancel()
-                    Task { await vm.endRound(gameId: gameId, roundId: roundId) }
-                } label: {
-                    Text("End Round")
-                        .font(.subheadline).foregroundColor(.white.opacity(0.7))
-                        .padding(.horizontal, 20).padding(.vertical, 14)
-                        .background(Color.white.opacity(0.15)).cornerRadius(10)
-                }
+                .font(.title2.bold()).foregroundColor(.white)
+                .padding(.horizontal, 36).padding(.vertical, 14)
+                .background(Color.green).cornerRadius(10)
             }
         }
         .padding(16)
@@ -581,7 +514,8 @@ struct ResultView: View {
     }
 
     private func fittedSize(for imageSize: CGSize, in containerSize: CGSize) -> CGSize {
-        let scale = min(containerSize.width / imageSize.width, containerSize.height / imageSize.height)
+        let scale = min(containerSize.width / imageSize.width,
+                        containerSize.height / imageSize.height)
         return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
     }
 }

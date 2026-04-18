@@ -43,9 +43,9 @@ class RoundDetail(BaseModel):
 class CurrentSession(BaseModel):
     game_id: int
     player_name: str
-    round_id: int
-    round_number: int
-    round_ended: bool
+    round_id: Optional[int] = None
+    round_number: Optional[int] = None
+    round_ended: Optional[bool] = None
 
 class DetectResponse(BaseModel):
     detected: bool
