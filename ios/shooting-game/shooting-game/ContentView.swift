@@ -284,7 +284,6 @@ struct IdleView: View {
             VStack {
                 topBar
                 Spacer()
-                bottomButtons
             }
         }
         .sheet(isPresented: $showServerSheet) {
@@ -293,42 +292,41 @@ struct IdleView: View {
     }
 
     private var topBar: some View {
-        HStack {
-            Spacer()
-            Button { showServerSheet = true } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "network")
-                    Text(serverHost)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Spacer()
+                Button { showServerSheet = true } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "network")
+                        Text(serverHost)
+                    }
+                    .font(.caption.bold())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.black.opacity(0.55))
+                    .cornerRadius(8)
                 }
-                .font(.caption.bold())
-                .foregroundColor(.white)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.black.opacity(0.55))
-                .cornerRadius(8)
+            }
+            HStack(spacing: 12) {
+                Button { vm.lockExposure() } label: {
+                    Label("Lock Exp.", systemImage: vm.exposureLocked ? "lock.fill" : "lock.open")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .background(vm.exposureLocked ? Color.yellow : Color.white.opacity(0.9))
+                        .cornerRadius(10)
+                }
+                Button { vm.arm() } label: {
+                    Text("Ready")
+                        .font(.title2.bold()).foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.green).cornerRadius(10)
+                }
             }
         }
         .padding(.top, 56)
         .padding(.horizontal, 16)
-    }
-
-    private var bottomButtons: some View {
-        HStack(spacing: 12) {
-            Button { vm.lockExposure() } label: {
-                Label("Lock Exp.", systemImage: vm.exposureLocked ? "lock.fill" : "lock.open")
-                    .font(.subheadline.bold())
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(vm.exposureLocked ? Color.yellow : Color.white.opacity(0.9))
-                    .cornerRadius(10)
-            }
-            Button { vm.arm() } label: {
-                Text("Ready")
-                    .font(.title2.bold()).foregroundColor(.white)
-                    .padding(.horizontal, 36).padding(.vertical, 12)
-                    .background(Color.green).cornerRadius(10)
-            }
-        }
-        .padding(.bottom, 52)
     }
 
     private var serverHost: String {
@@ -345,15 +343,19 @@ struct ArmedView: View {
         ZStack {
             CameraPreview(session: vm.camera.session).ignoresSafeArea()
             VStack {
-                ScanningBadge().padding(.top, 56)
-                Spacer()
-                Button { vm.disarm() } label: {
-                    Label("Stop", systemImage: "stop.circle")
-                        .font(.subheadline.bold()).foregroundColor(.white)
-                        .padding(.horizontal, 24).padding(.vertical, 12)
-                        .background(Color.red.opacity(0.8)).cornerRadius(10)
+                HStack(spacing: 12) {
+                    ScanningBadge()
+                    Spacer()
+                    Button { vm.disarm() } label: {
+                        Label("Stop", systemImage: "stop.circle")
+                            .font(.subheadline.bold()).foregroundColor(.white)
+                            .padding(.horizontal, 24).padding(.vertical, 12)
+                            .background(Color.red.opacity(0.8)).cornerRadius(10)
+                    }
                 }
-                .padding(.bottom, 52)
+                .padding(.top, 56)
+                .padding(.horizontal, 16)
+                Spacer()
             }
         }
     }
@@ -408,8 +410,8 @@ struct ResultView: View {
     let boardQuad: BoardQuad?
     let shot: ShotResult
 
-    private let resultCountdownSeconds = 3
-    @State private var countdown = 3
+    private let resultCountdownSeconds = 1
+    @State private var countdown = 1
     @State private var countdownTask: Task<Void, Never>? = nil
 
     var body: some View {
