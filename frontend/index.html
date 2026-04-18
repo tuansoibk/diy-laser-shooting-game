@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shooting Game</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -24,14 +24,25 @@
 <!-- ── Main screen ───────────────────────────────────────────── -->
 <div id="main" class="screen hidden">
   <header class="topbar">
-    <div class="topbar-left">
-      <span id="m-player" class="player-name"></span>
-      <span id="m-subtitle" class="subtitle"></span>
+    <div class="topbar-row1">
+      <div class="topbar-info">
+        <span id="m-player" class="player-name"></span>
+        <span id="m-subtitle" class="subtitle"></span>
+        <span id="m-round-badge" class="round-badge hidden"></span>
+      </div>
+      <div class="topbar-meta">
+        <span id="m-status" class="status-dot" title="Polling"></span>
+        <button id="m-change" class="btn-ghost">Server</button>
+      </div>
     </div>
-    <div class="topbar-right">
-      <span id="m-round-badge" class="round-badge hidden"></span>
-      <span id="m-status" class="status-dot" title="Polling"></span>
-      <button id="m-change" class="btn-ghost">Change</button>
+    <div class="topbar-row2">
+      <div class="topbar-controls">
+        <input id="c-player" type="text" placeholder="Player" value="Player" class="topbar-input">
+        <button id="c-new-game" class="btn-action btn-green">New Game</button>
+        <div class="topbar-sep"></div>
+        <button id="c-new-round" class="btn-action btn-blue">New Round</button>
+        <button id="c-end-round" class="btn-action btn-red">End Round</button>
+      </div>
     </div>
   </header>
 

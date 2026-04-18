@@ -57,6 +57,9 @@ function init() {
   $('s-backend').value = localStorage.getItem('backendURL') || '';
   $('s-connect').addEventListener('click', onConnect);
   $('m-change').addEventListener('click', onChangeSession);
+  $('c-new-game').addEventListener('click', newGame);
+  $('c-new-round').addEventListener('click', newRound);
+  $('c-end-round').addEventListener('click', endRound);
   window.addEventListener('resize', () => { resizeCanvas(); renderCanvas(); });
 
   // Auto-connect: use saved URL or, if served from FastAPI, use same origin
@@ -91,12 +94,15 @@ async function connect(backendURL) {
   state.backendURL = backendURL;
   localStorage.setItem('backendURL', backendURL);
 
-  let session;
+  let session = null;
   try {
     session = await fetchJSON('/current');
   } catch (e) {
-    showError(`Cannot reach backend or no active game: ${e.message}`);
-    return;
+    if (!e.message.includes('404')) {
+      showError(`Cannot reach backend: ${e.message}`);
+      return;
+    }
+    // 404 = no games yet; still proceed to main screen
   }
 
   applySession(session);
@@ -110,27 +116,37 @@ async function connect(backendURL) {
 }
 
 function applySession(session) {
-  const changed = session.round_id !== state.roundId;
+  const prevGameId  = state.gameId;
+  const prevRoundId = state.roundId;
 
-  state.gameId     = session.game_id;
-  state.roundId    = session.round_id;
-  state.roundEnded = session.round_ended;
+  state.gameId     = session ? session.game_id   : null;
+  state.roundId    = session ? session.round_id  : null;
+  state.roundEnded = session ? session.round_ended : null;
 
-  if (changed) {
+  if (state.gameId !== prevGameId || state.roundId !== prevRoundId) {
     state.shots     = [];
     state.lastCount = 0;
   }
 
-  $('m-player').textContent   = session.player_name;
-  $('m-subtitle').textContent = `Game #${session.game_id} · Round #${session.round_number}`;
+  if (session) {
+    $('m-player').textContent   = session.player_name;
+    $('m-subtitle').textContent = `Game #${session.game_id}` +
+      (session.round_number != null ? ` · Round #${session.round_number}` : '');
+    $('c-player').value = session.player_name;
+  } else {
+    $('m-player').textContent   = 'No active game';
+    $('m-subtitle').textContent = 'Create a new game to start';
+  }
 
   const badge = $('m-round-badge');
-  if (session.round_ended) {
+  if (session && session.round_ended) {
     badge.textContent = 'Round ended';
     badge.classList.remove('hidden');
   } else {
     badge.classList.add('hidden');
   }
+
+  updateControlButtons();
 }
 
 // ── Polling ───────────────────────────────────────────────────────────
@@ -147,19 +163,27 @@ function stopPolling() {
 async function poll() {
   const dot = $('m-status');
   try {
-    // Check for a new round / game first
-    const session = await fetchJSON('/current');
+    let session = null;
+    try {
+      session = await fetchJSON('/current');
+    } catch (e) {
+      if (!e.message.includes('404')) throw e;
+    }
     applySession(session);
 
-    // Then fetch shots for the current round
-    const shots  = await fetchJSON(`/rounds/${state.roundId}/shots`);
-    const hasNew = shots.length > state.lastCount;
-    state.shots  = shots;
-
-    renderCanvas();
-    renderStats();
-    renderShotList(hasNew);
-    state.lastCount = shots.length;
+    if (state.roundId) {
+      const shots  = await fetchJSON(`/rounds/${state.roundId}/shots`);
+      const hasNew = shots.length > state.lastCount;
+      state.shots  = shots;
+      renderCanvas();
+      renderStats();
+      renderShotList(hasNew);
+      state.lastCount = shots.length;
+    } else {
+      renderCanvas();
+      renderStats();
+      renderShotList(false);
+    }
     dot.className = 'status-dot live';
   } catch (e) {
     dot.className = 'status-dot error';
@@ -167,12 +191,76 @@ async function poll() {
   }
 }
 
-// ── Fetch helper ──────────────────────────────────────────────────────
+// ── Fetch helpers ─────────────────────────────────────────────────────
 
 async function fetchJSON(path) {
   const res = await fetch(state.backendURL + path);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+async function postJSON(path, body) {
+  const res = await fetch(state.backendURL + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function patchJSON(path) {
+  const res = await fetch(state.backendURL + path, { method: 'PATCH' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Game controls ─────────────────────────────────────────────────────
+
+function updateControlButtons() {
+  const hasGame   = state.gameId !== null;
+  const roundLive = state.roundId !== null && !state.roundEnded;
+
+  $('c-new-round').disabled = !hasGame;
+  $('c-end-round').disabled = !roundLive;
+}
+
+async function newGame() {
+  const name = $('c-player').value.trim() || 'Player';
+  $('c-new-game').disabled = true;
+  try {
+    await postJSON('/games', { player_name: name });
+    await poll();
+  } catch (e) {
+    console.error('New game error:', e);
+  } finally {
+    $('c-new-game').disabled = false;
+  }
+}
+
+async function newRound() {
+  if (!state.gameId) return;
+  $('c-new-round').disabled = true;
+  try {
+    await postJSON(`/games/${state.gameId}/rounds`, {});
+    await poll();
+  } catch (e) {
+    console.error('New round error:', e);
+  } finally {
+    updateControlButtons();
+  }
+}
+
+async function endRound() {
+  if (!state.roundId) return;
+  $('c-end-round').disabled = true;
+  try {
+    await patchJSON(`/rounds/${state.roundId}/end`);
+    await poll();
+  } catch (e) {
+    console.error('End round error:', e);
+    updateControlButtons();
+  }
 }
 
 // ── Canvas ────────────────────────────────────────────────────────────
