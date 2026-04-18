@@ -29,7 +29,7 @@ struct CameraPreview: UIViewRepresentable {
 enum DetectionState {
     case idle
     case armed
-    case result(image: UIImage, normalizedDots: [CGPoint])
+    case result(image: UIImage, normalizedDots: [CGPoint], boardQuad: BoardQuad?)
 }
 
 // MARK: - ViewModel
@@ -40,6 +40,7 @@ class AppViewModel: ObservableObject {
 
     let camera = CameraManager()
     private let detector = RedDotDetector()
+    private let boardDetector = BoardDetector()
 
     // Only touched from camera.processingQueue
     private var isArmed = false
@@ -74,6 +75,9 @@ class AppViewModel: ObservableObject {
 
         isArmed = false  // disarm before any async work — no second detection
 
+        // Board detection on the same frame — no threading issues, same queue, same frame
+        let boardQuad = boardDetector.detect(in: pixelBuffer)
+
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
@@ -81,7 +85,7 @@ class AppViewModel: ObservableObject {
         let dots = results.map { $0.normalizedCenter }
 
         DispatchQueue.main.async {
-            self.state = .result(image: image, normalizedDots: dots)
+            self.state = .result(image: image, normalizedDots: dots, boardQuad: boardQuad)
         }
     }
 }
@@ -99,8 +103,8 @@ struct ContentView: View {
                 IdleView(vm: vm)
             case .armed:
                 ArmedView(vm: vm)
-            case .result(let image, let dots):
-                ResultView(vm: vm, image: image, normalizedDots: dots)
+            case .result(let image, let dots, let boardQuad):
+                ResultView(vm: vm, image: image, normalizedDots: dots, boardQuad: boardQuad)
             }
         }
         .statusBar(hidden: true)
@@ -215,6 +219,7 @@ struct ResultView: View {
     @ObservedObject var vm: AppViewModel
     let image: UIImage
     let normalizedDots: [CGPoint]
+    let boardQuad: BoardQuad?
 
     var body: some View {
         ZStack {
@@ -230,25 +235,42 @@ struct ResultView: View {
                     .scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
 
+                // Board boundary outline
+                if let quad = boardQuad {
+                    BoardOutline(quad: quad, imgSize: imgSize, offset: CGPoint(x: offsetX, y: offsetY))
+                }
+
+                // Dot overlays — green if inside board (or no board detected), yellow if outside
                 ForEach(normalizedDots.indices, id: \.self) { i in
                     let dot = normalizedDots[i]
+                    let insideBoard = boardQuad.map { $0.contains(dot) } ?? true
                     let dotX = offsetX + dot.x * imgSize.width
                     let dotY = offsetY + dot.y * imgSize.height
-                    DotOverlay(index: i + 1)
+                    DotOverlay(index: i + 1, color: insideBoard ? .green : .yellow)
                         .position(x: dotX, y: dotY)
                 }
             }
 
             VStack {
                 Spacer()
-                VStack(spacing: 6) {
+                VStack(spacing: 4) {
                     Text("\(normalizedDots.count) dot\(normalizedDots.count == 1 ? "" : "s") detected")
                         .font(.headline)
                         .foregroundColor(.white)
-                    ForEach(normalizedDots.indices, id: \.self) { i in
-                        Text(String(format: "#%d  x: %.3f  y: %.3f", i + 1, normalizedDots[i].x, normalizedDots[i].y))
+                    if boardQuad == nil {
+                        Text("Board not detected")
                             .font(.caption)
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    ForEach(normalizedDots.indices, id: \.self) { i in
+                        let insideBoard = boardQuad.map { $0.contains(normalizedDots[i]) } ?? true
+                        HStack(spacing: 6) {
+                            Circle().fill(insideBoard ? Color.green : Color.yellow)
+                                .frame(width: 8, height: 8)
+                            Text(String(format: "#%d  x: %.3f  y: %.3f", i + 1, normalizedDots[i].x, normalizedDots[i].y))
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.8))
+                        }
                     }
                 }
                 .padding(14)
@@ -278,25 +300,45 @@ struct ResultView: View {
     }
 }
 
+struct BoardOutline: View {
+    let quad: BoardQuad
+    let imgSize: CGSize
+    let offset: CGPoint
+
+    var body: some View {
+        Path { path in
+            let pts = quad.corners.map {
+                CGPoint(x: offset.x + $0.x * imgSize.width,
+                        y: offset.y + $0.y * imgSize.height)
+            }
+            path.move(to: pts[0])
+            pts.dropFirst().forEach { path.addLine(to: $0) }
+            path.closeSubpath()
+        }
+        .stroke(Color.cyan.opacity(0.8), lineWidth: 2)
+    }
+}
+
 struct DotOverlay: View {
     let index: Int
+    let color: Color
     @State private var pulsing = false
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.green.opacity(0.4), lineWidth: 2)
+                .stroke(color.opacity(0.4), lineWidth: 2)
                 .frame(width: pulsing ? 50 : 34, height: pulsing ? 50 : 34)
                 .animation(.easeOut(duration: 0.4), value: pulsing)
             Circle()
-                .stroke(Color.green, lineWidth: 2)
+                .stroke(color, lineWidth: 2)
                 .frame(width: 34, height: 34)
             Circle()
-                .fill(Color.green)
+                .fill(color)
                 .frame(width: 6, height: 6)
             Text("\(index)")
                 .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.green)
+                .foregroundColor(color)
                 .offset(x: 14, y: -14)
         }
         .onAppear { pulsing = true }
