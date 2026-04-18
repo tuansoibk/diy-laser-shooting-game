@@ -22,6 +22,7 @@ struct RoundResponse: Decodable {
 
 struct ShotResult: Decodable {
     let detected: Bool
+    let multipleDots: Bool
     let score: Int?
     let x: Double?
     let y: Double?
@@ -29,8 +30,9 @@ struct ShotResult: Decodable {
     let shotId: Int?
     enum CodingKeys: String, CodingKey {
         case detected, score, x, y
-        case distancePx = "distance_px"
-        case shotId     = "shot_id"
+        case multipleDots = "multiple_dots"
+        case distancePx   = "distance_px"
+        case shotId       = "shot_id"
     }
 }
 

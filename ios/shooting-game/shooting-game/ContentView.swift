@@ -91,9 +91,15 @@ class AppViewModel: ObservableObject {
         let results = dotDetector.detect(in: pixelBuffer)
         guard !results.isEmpty else { return }
 
-        isArmed = false
-
         let boardQuad = boardDetector.detect(in: pixelBuffer)
+
+        // Skip backend call if no dot is inside the board area
+        if let quad = boardQuad {
+            let hasInsideDot = results.contains { quad.contains($0.normalizedCenter) }
+            guard hasInsideDot else { return }
+        }
+
+        isArmed = false
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let ctx = CIContext()
@@ -114,6 +120,12 @@ class AppViewModel: ObservableObject {
                              image: UIImage, dots: [CGPoint], board: BoardQuad?, jpeg: Data) async {
         do {
             let shot = try await api.detectShot(roundId: roundId, jpeg: jpeg)
+            if shot.multipleDots {
+                // Multiple dots found — re-arm and let user retry
+                errorMessage = "Multiple dots detected — please retry"
+                arm(gameId: gameId, roundId: roundId)
+                return
+            }
             appState = .result(gameId: gameId, roundId: roundId,
                                image: image, dots: dots, board: board, shot: shot)
         } catch {

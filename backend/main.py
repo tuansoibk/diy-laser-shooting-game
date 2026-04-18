@@ -117,6 +117,9 @@ async def detect_shot(round_id: int, frame: UploadFile = File(...)):
     if result is None:
         return DetectResponse(detected=False)
 
+    if result.get("multiple_dots"):
+        return DetectResponse(detected=False, multiple_dots=True)
+
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO shot (round_id, score, x, y, distance_px) VALUES (?, ?, ?, ?, ?) "

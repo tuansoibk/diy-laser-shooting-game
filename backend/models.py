@@ -41,6 +41,7 @@ class RoundDetail(BaseModel):
 
 class DetectResponse(BaseModel):
     detected: bool
+    multiple_dots: bool = False
     score: Optional[int] = None
     x: Optional[float] = None
     y: Optional[float] = None

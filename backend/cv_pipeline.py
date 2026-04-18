@@ -65,8 +65,8 @@ def _compute_homography(detected_centers):
 # Dot detection
 # ---------------------------------------------------------------------------
 
-def _detect_red_dot(warped_img):
-    """Returns (cx, cy) in canonical space, or None."""
+def _detect_red_dots(warped_img):
+    """Returns list of (cx, cy) for every valid red blob in canonical space."""
     hsv = cv2.cvtColor(warped_img, cv2.COLOR_BGR2HSV)
     mask_lo = cv2.inRange(hsv, np.array([0,   120, 120]), np.array([10,  255, 255]))
     mask_hi = cv2.inRange(hsv, np.array([170, 120, 120]), np.array([180, 255, 255]))
@@ -77,17 +77,14 @@ def _detect_red_dot(warped_img):
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-
     valid = [c for c in contours if 15 < cv2.contourArea(c) < 3000]
-    best = max(valid or contours, key=cv2.contourArea)
 
-    M = cv2.moments(best)
-    if M["m00"] == 0:
-        return None
-
-    return M["m10"] / M["m00"], M["m01"] / M["m00"]
+    dots = []
+    for c in valid:
+        M = cv2.moments(c)
+        if M["m00"] > 0:
+            dots.append((M["m10"] / M["m00"], M["m01"] / M["m00"]))
+    return dots
 
 
 # ---------------------------------------------------------------------------
@@ -126,13 +123,18 @@ def process_frame(jpeg_bytes: bytes):
     H = _compute_homography(detected)
     warped = cv2.warpPerspective(img, H, (BOARD_SIZE, BOARD_SIZE))
 
-    dot = _detect_red_dot(warped)
-    if dot is None:
+    dots = _detect_red_dots(warped)
+    if not dots:
         return None
 
+    if len(dots) > 1:
+        return {"multiple_dots": True}
+
+    dot = dots[0]
     score, dist = _score(dot[0], dot[1])
 
     return {
+        "multiple_dots": False,
         "x":           round(dot[0] / BOARD_SIZE, 4),
         "y":           round(dot[1] / BOARD_SIZE, 4),
         "score":       score,
