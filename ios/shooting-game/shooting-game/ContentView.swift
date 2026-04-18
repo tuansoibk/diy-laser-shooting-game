@@ -452,6 +452,9 @@ struct ResultView: View {
     let boardQuad: BoardQuad?
     let shot: ShotResult
 
+    @State private var countdown = 5
+    @State private var countdownTask: Task<Void, Never>? = nil
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -490,6 +493,22 @@ struct ResultView: View {
                 bottomBar
             }
         }
+        .onAppear { startCountdown() }
+        .onDisappear { countdownTask?.cancel() }
+    }
+
+    private func startCountdown() {
+        countdown = 5
+        countdownTask?.cancel()
+        countdownTask = Task {
+            for remaining in stride(from: 4, through: 0, by: -1) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run { countdown = remaining }
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run { vm.arm(gameId: gameId, roundId: roundId) }
+        }
     }
 
     private var bottomBar: some View {
@@ -512,14 +531,21 @@ struct ResultView: View {
 
             HStack(spacing: 12) {
                 Button {
+                    countdownTask?.cancel()
                     vm.arm(gameId: gameId, roundId: roundId)
                 } label: {
-                    Text("Next Shot")
-                        .font(.title2.bold()).foregroundColor(.white)
-                        .padding(.horizontal, 36).padding(.vertical, 14)
-                        .background(Color.green).cornerRadius(10)
+                    HStack(spacing: 6) {
+                        Text("Next Shot")
+                        Text("(\(countdown))")
+                            .monospacedDigit()
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .font(.title2.bold()).foregroundColor(.white)
+                    .padding(.horizontal, 28).padding(.vertical, 14)
+                    .background(Color.green).cornerRadius(10)
                 }
                 Button {
+                    countdownTask?.cancel()
                     Task { await vm.endRound(gameId: gameId, roundId: roundId) }
                 } label: {
                     Text("End Round")
