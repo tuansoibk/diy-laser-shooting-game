@@ -462,7 +462,7 @@ struct ResultView: View {
     let boardQuad: BoardQuad?
     let shot: ShotResult
 
-    @State private var countdown = 5
+    @State private var countdown = 3
     @State private var countdownTask: Task<Void, Never>? = nil
 
     var body: some View {
@@ -508,7 +508,7 @@ struct ResultView: View {
     }
 
     private func startCountdown() {
-        countdown = 5
+        countdown = 3
         countdownTask?.cancel()
         countdownTask = Task {
             for remaining in stride(from: 4, through: 0, by: -1) {
