@@ -1,7 +1,6 @@
 import AVFoundation
-import UIKit
 
-class CameraManager: NSObject, ObservableObject {
+class CameraManager: NSObject {
     let session = AVCaptureSession()
 
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -39,8 +38,8 @@ class CameraManager: NSObject, ObservableObject {
 
         // Rotate frames to portrait so pixel coords match screen orientation
         if let connection = videoOutput.connection(with: .video) {
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
+            if connection.isVideoRotationAngleSupported(90) {
+                connection.videoRotationAngle = 90
             }
         }
 

@@ -12,12 +12,12 @@ __pycache__/
 venv/
 
 # Xcode
-ios/*.xcodeproj/xcuserdata/
-ios/*.xcworkspace/xcuserdata/
-ios/*.xcworkspace/contents.xcworkspacedata
-ios/DerivedData/
-ios/*.ipa
-ios/*.dSYM.zip
+ios/**/*.xcuserdata/
+ios/**/*.xcuserdatad/
+ios/**/xcuserdata/
+ios/**/DerivedData/
+ios/**/*.ipa
+ios/**/*.dSYM.zip
 
 # macOS
 .DS_Store

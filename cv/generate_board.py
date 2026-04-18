@@ -15,7 +15,7 @@ MAX_RADIUS = (BOARD_SIZE - 2 * BOARD_INNER_MARGIN) // 2  # 280px
 RING_WIDTH = MAX_RADIUS / NUM_RINGS             # 28px per ring
 
 
-def generate_board(dot_x=None, dot_y=None, perspective=False, output="test_board.png", seed=42):
+def generate_board(dot_x=None, dot_y=None, no_dot=False, perspective=False, output="test_board.png", seed=42):
     if seed is not None:
         np.random.seed(seed)
 
@@ -60,17 +60,18 @@ def generate_board(dot_x=None, dot_y=None, perspective=False, output="test_board
             marker_img = cv2.aruco.drawMarker(aruco_dict, marker_id, MARKER_SIZE)
         img[y:y + MARKER_SIZE, x:x + MARKER_SIZE] = cv2.cvtColor(marker_img, cv2.COLOR_GRAY2BGR)
 
-    # Red dot — default to random position within the ring area
-    rng_range = int(MAX_RADIUS * 0.85)
-    if dot_x is None:
-        dot_x = BOARD_SIZE // 2 + np.random.randint(-rng_range, rng_range)
-    if dot_y is None:
-        dot_y = BOARD_SIZE // 2 + np.random.randint(-rng_range, rng_range)
+    if not no_dot:
+        # Red dot — default to random position within the ring area
+        rng_range = int(MAX_RADIUS * 0.85)
+        if dot_x is None:
+            dot_x = BOARD_SIZE // 2 + np.random.randint(-rng_range, rng_range)
+        if dot_y is None:
+            dot_y = BOARD_SIZE // 2 + np.random.randint(-rng_range, rng_range)
 
-    # Simulate laser: outer glow + bright core
-    cv2.circle(img, (dot_x, dot_y), 7, (0, 0, 180), -1)
-    cv2.circle(img, (dot_x, dot_y), 4, (0, 0, 255), -1)
-    cv2.circle(img, (dot_x, dot_y), 2, (120, 120, 255), -1)
+        # Simulate laser: outer glow + bright core
+        cv2.circle(img, (dot_x, dot_y), 7, (0, 0, 180), -1)
+        cv2.circle(img, (dot_x, dot_y), 4, (0, 0, 255), -1)
+        cv2.circle(img, (dot_x, dot_y), 2, (120, 120, 255), -1)
 
     if perspective:
         jitter = BOARD_SIZE // 8
@@ -86,10 +87,11 @@ def generate_board(dot_x=None, dot_y=None, perspective=False, output="test_board
 
     cv2.imwrite(output, img)
     print(f"Saved: {output}")
-    print(f"Dot position: ({dot_x}, {dot_y})")
-    dist = np.sqrt((dot_x - BOARD_SIZE / 2) ** 2 + (dot_y - BOARD_SIZE / 2) ** 2)
-    expected_score = max(1, NUM_RINGS - int(dist / RING_WIDTH)) if dist <= MAX_RADIUS else 0
-    print(f"Expected score: {expected_score}  (dist={dist:.1f}px)")
+    if not no_dot and dot_x is not None:
+        dist = np.sqrt((dot_x - BOARD_SIZE / 2) ** 2 + (dot_y - BOARD_SIZE / 2) ** 2)
+        expected_score = max(1, NUM_RINGS - int(dist / RING_WIDTH)) if dist <= MAX_RADIUS else 0
+        print(f"Dot position: ({dot_x}, {dot_y})")
+        print(f"Expected score: {expected_score}  (dist={dist:.1f}px)")
     return dot_x, dot_y
 
 
@@ -97,8 +99,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate test shooting board")
     parser.add_argument("--dot-x", type=int, default=None, help="Red dot X (default: random)")
     parser.add_argument("--dot-y", type=int, default=None, help="Red dot Y (default: random)")
+    parser.add_argument("--no-dot", action="store_true", help="Generate board without red dot (for printing)")
     parser.add_argument("--perspective", action="store_true", help="Apply random perspective warp")
     parser.add_argument("--output", default="test_board.png")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-    generate_board(args.dot_x, args.dot_y, args.perspective, args.output, args.seed)
+    generate_board(args.dot_x, args.dot_y, args.no_dot, args.perspective, args.output, args.seed)

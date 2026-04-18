@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import Combine
 
 // MARK: - Camera preview
 
@@ -55,6 +56,11 @@ class AppViewModel: ObservableObject {
         DispatchQueue.main.async { self.state = .armed }
     }
 
+    func disarm() {
+        camera.processingQueue.async { self.isArmed = false }
+        DispatchQueue.main.async { self.state = .idle }
+    }
+
     func lockExposure() {
         camera.lockExposure()
         DispatchQueue.main.async { self.exposureLocked = true }
@@ -67,11 +73,9 @@ class AppViewModel: ObservableObject {
 
         isArmed = false  // disarm before any async work — no second detection
 
-        // Capture the frame as UIImage
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
-        // Frames are delivered in portrait orientation (set in CameraManager), no rotation needed
         let image = UIImage(cgImage: cgImage)
 
         DispatchQueue.main.async {
@@ -110,7 +114,6 @@ struct IdleView: View {
         ZStack {
             CameraPreview(session: vm.camera.session).ignoresSafeArea()
             VStack {
-                // Exposure lock indicator
                 HStack {
                     Image(systemName: vm.exposureLocked ? "lock.fill" : "lock.open")
                     Text(vm.exposureLocked ? "Exposure locked" : "Exposure auto")
@@ -167,6 +170,16 @@ struct ArmedView: View {
                 ScanningBadge()
                     .padding(.top, 56)
                 Spacer()
+                Button { vm.disarm() } label: {
+                    Label("Stop", systemImage: "stop.circle")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(Color.red.opacity(0.8))
+                        .cornerRadius(10)
+                }
+                .padding(.bottom, 52)
             }
         }
     }
@@ -210,20 +223,17 @@ struct ResultView: View {
                 let offsetX = (geo.size.width  - imgSize.width)  / 2
                 let offsetY = (geo.size.height - imgSize.height) / 2
 
-                // Captured frame
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                // Green circle over detected dot
                 let dotX = offsetX + normalizedDot.x * imgSize.width
                 let dotY = offsetY + normalizedDot.y * imgSize.height
                 DotOverlay()
                     .position(x: dotX, y: dotY)
             }
 
-            // Bottom overlay: coords + Ready button
             VStack {
                 Spacer()
                 VStack(spacing: 6) {
