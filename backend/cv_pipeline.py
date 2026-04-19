@@ -79,9 +79,12 @@ def _hsv_mask(warped_img, sat_min=140, val_min=140):
     mask_lo = cv2.inRange(hsv, np.array([0,   sat_min, val_min]), np.array([10,  255, 255]))
     mask_hi = cv2.inRange(hsv, np.array([170, sat_min, val_min]), np.array([180, 255, 255]))
     mask = cv2.bitwise_or(mask_lo, mask_hi)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    # Large closing kernel fills the overexposed glare hole in the dot centre;
+    # a 5×5 kernel is too small to bridge it, leaving a donut with low circularity.
+    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
+    open_k  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_k)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  open_k)
     return mask
 
 
@@ -91,10 +94,15 @@ def _contours_to_dots(contours, min_circularity=0.45):
         area = cv2.contourArea(c)
         if not (15 < area < 3000):
             continue
-        perimeter = cv2.arcLength(c, True)
-        if perimeter == 0:
+        # Use convex hull for circularity so glare-induced holes (donuts, crescents,
+        # kidney beans) don't lower the score — the hull stays circular regardless.
+        # Elongated lens-flare streaks still fail because their hull is also elongated.
+        hull = cv2.convexHull(c)
+        hull_perim = cv2.arcLength(hull, True)
+        if hull_perim == 0:
             continue
-        if (4 * np.pi * area / (perimeter ** 2)) < min_circularity:
+        hull_area = cv2.contourArea(hull)
+        if (4 * np.pi * hull_area / (hull_perim ** 2)) < min_circularity:
             continue
         M = cv2.moments(c)
         if M["m00"] > 0:
@@ -136,6 +144,55 @@ def _hint_to_canonical(img, H, hint_x, hint_y):
 
 def _dot_distance(a, b):
     return float(np.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2))
+
+
+def _save_no_dot(warped, hint_canonical, reason: str):
+    """Save annotated debug image when no dot was detected."""
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+    vis = warped.copy()
+
+    # Draw ring reference circles
+    cx, cy = BOARD_SIZE // 2, BOARD_SIZE // 2
+    for ring in range(1, NUM_RINGS + 1):
+        cv2.circle(vis, (cx, cy), int(ring * RING_WIDTH), (50, 50, 50), 1)
+
+    # Draw all contours with pass/fail labels so we can see what was found
+    mask = _hsv_mask(warped, sat_min=100, val_min=100)  # relaxed to show near-misses
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for c in contours:
+        area = cv2.contourArea(c)
+        perimeter = cv2.arcLength(c, True)
+        circ = (4 * np.pi * area / perimeter ** 2) if perimeter > 0 else 0
+        M = cv2.moments(c)
+        if M["m00"] <= 0:
+            continue
+        pcx = int(M["m10"] / M["m00"])
+        pcy = int(M["m01"] / M["m00"])
+        passed = (15 < area < 3000) and circ >= 0.45
+        color = (0, 220, 0) if passed else (0, 80, 220)
+        cv2.drawContours(vis, [c], -1, color, 2)
+        cv2.putText(vis, f"a={area:.0f} c={circ:.2f}",
+                    (pcx + 6, pcy), cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1)
+
+    # Mark iOS hint in red
+    if hint_canonical is not None:
+        hx, hy = int(hint_canonical[0]), int(hint_canonical[1])
+        cv2.circle(vis, (hx, hy), 12, (0, 60, 255), 2)
+        cv2.putText(vis, "ios_hint", (hx + 14, hy),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 60, 255), 1)
+
+    # Label reason
+    cv2.putText(vis, f"no_dot: {reason}", (10, 24),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+    # Side-by-side: warped board | HSV mask
+    mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    composite = np.hstack([vis, mask_bgr])
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    path = os.path.join(DEBUG_DIR, f"no_dot_{ts}.jpg")
+    cv2.imwrite(path, composite)
+    print(f"[cv_pipeline] no_dot saved → {path}")
 
 
 def _save_mismatch(jpeg_bytes, warped, backend_dot, hint_canonical):
@@ -328,6 +385,8 @@ def process_frame(jpeg_bytes, hint_x=None, hint_y=None):
             if np.sqrt((d[0] - board_cx) ** 2 + (d[1] - board_cy) ** 2) <= MAX_RADIUS + RING_WIDTH]
 
     if not dots:
+        reason = "guided_miss" if guided else ("hint_miss" if hint_canonical else "strict_miss")
+        _save_no_dot(warped, hint_canonical, reason)
         return None
 
     # --- Hint-based disambiguation: multiple dots → pick closest to hint ---

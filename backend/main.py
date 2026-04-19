@@ -1,8 +1,12 @@
 import os
+import logging
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+
+log = logging.getLogger("detect")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
 from database import init_db, get_conn
 from models import (
@@ -164,12 +168,16 @@ async def detect_current(
 
         round_id = round_row["id"]
 
+    ios_hint = f"({hint_x:.3f}, {hint_y:.3f})" if hint_x is not None else "none"
+
     jpeg_bytes = await frame.read()
     result = process_frame(jpeg_bytes, hint_x=hint_x, hint_y=hint_y)
 
     if result is None:
+        log.info("round=%d  ios=%s  backend=no_dot", round_id, ios_hint)
         return DetectResponse(detected=False)
     if result.get("multiple_dots"):
+        log.info("round=%d  ios=%s  backend=multiple_dots", round_id, ios_hint)
         return DetectResponse(detected=False, multiple_dots=True)
 
     with get_conn() as conn:
@@ -180,6 +188,11 @@ async def detect_current(
         )
         shot_id = cur.fetchone()["id"]
 
+    log.info(
+        "round=%d  ios=%s  backend=(%.3f, %.3f)  score=%d  dist=%.1fpx  shot_id=%d",
+        round_id, ios_hint, result["x"], result["y"], result["score"],
+        result["distance_px"], shot_id,
+    )
     return DetectResponse(detected=True, shot_id=shot_id, **result)
 
 
