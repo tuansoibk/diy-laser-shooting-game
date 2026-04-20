@@ -274,7 +274,18 @@ async def debug_detect(frame: UploadFile = File(...)):
       debug_image  — base64 JPEG: left half = warped board with contours
                      annotated, right half = HSV mask
     """
+    from datetime import datetime
     jpeg_bytes = await frame.read()
+
+    import os
+    debug_dir = os.path.join(os.path.dirname(__file__), "debug")
+    os.makedirs(debug_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    raw_path = os.path.join(debug_dir, f"debug_raw_{ts}.jpg")
+    with open(raw_path, "wb") as f:
+        f.write(jpeg_bytes)
+    log.info("debug_raw saved → %s", raw_path)
+
     return debug_frame(jpeg_bytes)
 
 

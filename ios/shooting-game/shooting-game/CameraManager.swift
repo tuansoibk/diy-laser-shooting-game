@@ -10,6 +10,8 @@ class CameraManager: NSObject {
     private let sessionQueue = DispatchQueue(label: "camera.session")
 
     var onFrame: ((CVPixelBuffer) -> Void)?
+    // One-shot capture: set before the next frame arrives, cleared immediately after.
+    private var pendingCapture: ((CVPixelBuffer) -> Void)?
 
     override init() {
         super.init()
@@ -67,6 +69,11 @@ class CameraManager: NSObject {
         session.commitConfiguration()
     }
 
+    /// Deliver the very next camera frame to `completion` (called on processingQueue).
+    func captureFrame(completion: @escaping (CVPixelBuffer) -> Void) {
+        processingQueue.async { self.pendingCapture = completion }
+    }
+
     func start() {
         sessionQueue.async { [weak self] in
             self?.session.startRunning()
@@ -85,18 +92,42 @@ class CameraManager: NSObject {
         guard let device = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) else { return }
         try? device.lockForConfiguration()
         if device.isExposureModeSupported(.custom) {
-            device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso, completionHandler: nil)
+            let iso = device.iso.clamped(to: device.activeFormat.minISO...device.activeFormat.maxISO)
+            device.setExposureModeCustom(duration: device.exposureDuration, iso: iso, completionHandler: nil)
         }
         if device.isWhiteBalanceModeSupported(.locked) {
             device.whiteBalanceMode = .locked
         }
         device.unlockForConfiguration()
     }
+
+    // Restore auto-exposure and auto white balance so the camera re-adjusts to a new scene.
+    func unlockExposure() {
+        guard let device = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) else { return }
+        try? device.lockForConfiguration()
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.exposureMode = .continuousAutoExposure
+        }
+        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+            device.whiteBalanceMode = .continuousAutoWhiteBalance
+        }
+        device.unlockForConfiguration()
+    }
+}
+
+private extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
 }
 
 extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        if let capture = pendingCapture {
+            pendingCapture = nil
+            capture(pixelBuffer)
+        }
         onFrame?(pixelBuffer)
     }
 }

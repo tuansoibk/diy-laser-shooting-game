@@ -19,6 +19,8 @@ class AppViewModel: ObservableObject {
     @Published var appState: AppState = .connect
     @Published var exposureLocked = false
     @Published var errorMessage: String? = nil
+    @Published var debugResult: DebugDetectResponse? = nil
+    @Published var isDebugging = false
 
     @AppStorage("backendURL") var backendURL: String = ""
 
@@ -65,9 +67,37 @@ class AppViewModel: ObservableObject {
         appState = .idle
     }
 
-    func lockExposure() {
-        camera.lockExposure()
-        exposureLocked = true
+    func captureDebug() {
+        isDebugging = true
+        camera.captureFrame { [weak self] pixelBuffer in
+            guard let self else { return }
+            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+            let ctx = CIContext()
+            guard let cgImage = ctx.createCGImage(ciImage, from: ciImage.extent),
+                  let jpeg = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.85)
+            else {
+                DispatchQueue.main.async { self.isDebugging = false }
+                return
+            }
+            Task { @MainActor in
+                do {
+                    self.debugResult = try await self.api.debugDetect(jpeg: jpeg)
+                } catch {
+                    self.errorMessage = "Debug failed: \(error.localizedDescription)"
+                }
+                self.isDebugging = false
+            }
+        }
+    }
+
+    func toggleExposureLock() {
+        if exposureLocked {
+            camera.unlockExposure()
+            exposureLocked = false
+        } else {
+            camera.lockExposure()
+            exposureLocked = true
+        }
     }
 
     // Runs on camera.processingQueue
@@ -303,6 +333,9 @@ struct IdleView: View {
         .sheet(isPresented: $showServerSheet) {
             ServerSheet(vm: vm, isPresented: $showServerSheet)
         }
+        .sheet(item: $vm.debugResult) { result in
+            DebugResultSheet(result: result)
+        }
     }
 
     private var topBar: some View {
@@ -322,7 +355,7 @@ struct IdleView: View {
                 }
             }
             HStack(spacing: 12) {
-                Button { vm.lockExposure() } label: {
+                Button { vm.toggleExposureLock() } label: {
                     Label("Lock Exp.", systemImage: vm.exposureLocked ? "lock.fill" : "lock.open")
                         .font(.subheadline.bold())
                         .foregroundColor(.black)
@@ -330,6 +363,21 @@ struct IdleView: View {
                         .background(vm.exposureLocked ? Color.yellow : Color.white.opacity(0.9))
                         .cornerRadius(10)
                 }
+                Button {
+                    vm.captureDebug()
+                } label: {
+                    if vm.isDebugging {
+                        ProgressView().tint(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(Color.black.opacity(0.5)).cornerRadius(10)
+                    } else {
+                        Label("Debug", systemImage: "ladybug")
+                            .font(.subheadline.bold()).foregroundColor(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(Color.black.opacity(0.5)).cornerRadius(10)
+                    }
+                }
+                .disabled(vm.isDebugging)
                 Button { vm.arm() } label: {
                     Text("Ready")
                         .font(.title2.bold()).foregroundColor(.white)
@@ -360,6 +408,21 @@ struct ArmedView: View {
                 HStack(spacing: 12) {
                     ScanningBadge()
                     Spacer()
+                    Button {
+                        vm.captureDebug()
+                    } label: {
+                        if vm.isDebugging {
+                            ProgressView().tint(.white)
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                                .background(Color.black.opacity(0.5)).cornerRadius(10)
+                        } else {
+                            Label("Debug", systemImage: "ladybug")
+                                .font(.subheadline.bold()).foregroundColor(.white)
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                                .background(Color.black.opacity(0.5)).cornerRadius(10)
+                        }
+                    }
+                    .disabled(vm.isDebugging)
                     Button { vm.disarm() } label: {
                         Label("Stop", systemImage: "stop.circle")
                             .font(.subheadline.bold()).foregroundColor(.white)
@@ -371,6 +434,9 @@ struct ArmedView: View {
                 .padding(.horizontal, 16)
                 Spacer()
             }
+        }
+        .sheet(item: $vm.debugResult) { result in
+            DebugResultSheet(result: result)
         }
     }
 }
@@ -533,6 +599,91 @@ struct ResultView: View {
         let scale = min(containerSize.width / imageSize.width,
                         containerSize.height / imageSize.height)
         return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+    }
+}
+
+// MARK: - Debug result sheet
+
+extension DebugDetectResponse: Identifiable {
+    public var id: String { stage + (debugImage?.prefix(16) ?? "") }
+}
+
+struct DebugResultSheet: View {
+    let result: DebugDetectResponse
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Debug image from backend
+                    if let b64 = result.debugImage,
+                       let data = Data(base64Encoded: b64),
+                       let uiImg = UIImage(data: data) {
+                        Image(uiImage: uiImg)
+                            .resizable().scaledToFit()
+                            .cornerRadius(8)
+                    }
+
+                    // Stage + ArUco
+                    HStack(spacing: 12) {
+                        stageBadge
+                        Text("ArUco: \(result.arucoIds.isEmpty ? "none" : result.arucoIds.map(String.init).joined(separator: ", "))")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+
+                    // Result summary
+                    if let r = result.result {
+                        if r.detected, let score = r.score {
+                            Text("Score: \(score)  dist: \(String(format: "%.1f", r.distancePx ?? 0)) px")
+                                .font(.headline)
+                        } else {
+                            Text("Backend: no dot detected").font(.headline).foregroundColor(.orange)
+                        }
+                    }
+
+                    // Contour list
+                    if !result.contours.isEmpty {
+                        Text("Contours (\(result.contours.count))")
+                            .font(.caption.bold()).foregroundColor(.secondary)
+                        ForEach(result.contours) { c in
+                            HStack {
+                                Image(systemName: c.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(c.passed ? .green : .red)
+                                Text("a=\(Int(c.area))  circ=\(String(format: "%.2f", c.circularity))")
+                                    .font(.caption.monospaced())
+                                Spacer()
+                                if let reason = c.failReason {
+                                    Text(reason).font(.caption).foregroundColor(.red)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Debug Result")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var stageBadge: some View {
+        let (label, color): (String, Color) = switch result.stage {
+        case "ok":    ("OK", .green)
+        case "dots":  ("No dot", .orange)
+        case "aruco": ("No board", .red)
+        default:      (result.stage, .gray)
+        }
+        return Text(label)
+            .font(.caption.bold()).foregroundColor(.white)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(color).cornerRadius(6)
     }
 }
 

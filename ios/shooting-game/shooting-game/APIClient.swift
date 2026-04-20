@@ -18,6 +18,33 @@ struct ShotResult: Decodable {
     }
 }
 
+struct DebugContour: Decodable, Identifiable {
+    let cx: Int
+    let cy: Int
+    let area: Double
+    let circularity: Double
+    let passed: Bool
+    let failReason: String?
+    var id: String { "\(cx)-\(cy)-\(area)" }
+    enum CodingKeys: String, CodingKey {
+        case cx, cy, area, circularity, passed
+        case failReason = "fail_reason"
+    }
+}
+
+struct DebugDetectResponse: Decodable {
+    let stage: String
+    let arucoIds: [Int]
+    let contours: [DebugContour]
+    let result: ShotResult?
+    let debugImage: String?   // base64 JPEG
+    enum CodingKeys: String, CodingKey {
+        case stage, contours, result
+        case arucoIds  = "aruco_ids"
+        case debugImage = "debug_image"
+    }
+}
+
 // MARK: - Client
 
 class APIClient {
@@ -67,6 +94,29 @@ class APIClient {
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode(ShotResult.self, from: data)
+    }
+
+    /// POST /debug/detect — full pipeline diagnostics without persisting a shot.
+    func debugDetect(jpeg: Data) async throws -> DebugDetectResponse {
+        let boundary = UUID().uuidString
+        var body = Data()
+        body.append("--\(boundary)\r\n")
+        body.append("Content-Disposition: form-data; name=\"frame\"; filename=\"frame.jpg\"\r\n")
+        body.append("Content-Type: image/jpeg\r\n\r\n")
+        body.append(jpeg)
+        body.append("\r\n--\(boundary)--\r\n")
+
+        guard let url = URL(string: "\(baseURL)/debug/detect") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+
+        let (data, resp) = try await APIClient.session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(DebugDetectResponse.self, from: data)
     }
 }
 

@@ -12,10 +12,13 @@ struct DotDetectionResult {
 
 class RedDotDetector {
     // --- Tunable thresholds ---
+    /// Minimum R channel value — filters out dark noise.
     var minRedValue: Float = 160
-    var minRedDominance: Float = 100
+    /// R must be this many times larger than max(G, B).
+    /// Ratio-based so detection scales naturally with scene brightness.
+    var minRedRatio: Float = 1.5
     var minClusterSize: Int = 20
-    var maxClusterSize: Int = 5000
+    var maxClusterSize: Int = 50000
     /// Max distance (px) between a red pixel and a cluster centroid to be considered the same blob.
     /// Wider radius merges nearby lens-flare streaks into the main dot cluster.
     var clusterMergeRadius: Int = 70
@@ -47,9 +50,10 @@ class RedDotDetector {
                 let g = Float(buf[offset + 1])
                 let r = Float(buf[offset + 2])
 
+                let maxOther = max(g, b)
                 guard r >= minRedValue,
-                      r - g >= minRedDominance,
-                      r - b >= minRedDominance else { continue }
+                      maxOther > 0,
+                      r / maxOther >= minRedRatio else { continue }
 
                 // Assign to nearest cluster within mergeRadius, or start a new one
                 var bestIdx = -1
