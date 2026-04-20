@@ -85,7 +85,19 @@ When a shot is missed, debug images are saved to `backend/debug/`:
 The iOS app has a **Debug** button (ladybug icon) that captures a frame and sends it to `/debug/detect`, displaying the annotated pipeline result inline.
 
 ## Images
-[Target and phone holder]
-[Target with phone]
-[Result on web]
-[Round end result]
+
+**Target board and phone holder** — cardboard stand positions the iPhone at a fixed angle facing the board
+
+![Target and phone holder](doc/images/target_and_phone_holder.jpg)
+
+**Setup in use** — iPhone mounted in the holder, board framed in the camera view, ready to shoot
+
+![Target with phone](doc/images/target_with_phone.jpg)
+
+**Live scoreboard** — web frontend showing shot positions on the target and a per-shot breakdown
+
+![Result on web](doc/images/result_on_web.jpg)
+
+**Round complete splash** — summary shown automatically after the last shot of a round
+
+![Round end result](doc/images/round_end.jpg)
