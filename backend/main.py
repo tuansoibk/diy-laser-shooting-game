@@ -17,9 +17,23 @@ from models import (
 from cv_pipeline import process_frame, debug_frame
 
 
+def _get_local_ip() -> str:
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))  # no data sent; OS picks the outbound interface
+        return s.getsockname()[0]
+    except Exception:
+        return 'unavailable'
+    finally:
+        s.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    ip = _get_local_ip()
+    log.info("Local IP: %s  →  http://%s:8000", ip, ip)
     yield
 
 app = FastAPI(title="Shooting Game API", lifespan=lifespan)

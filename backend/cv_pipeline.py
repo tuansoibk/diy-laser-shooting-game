@@ -134,6 +134,45 @@ def _detect_red_dots_guided(warped_img, hint_cx, hint_cy):
     return _contours_to_dots(contours, min_circularity=0.30)
 
 
+def _detect_bright_spot_guided(warped_img, hint_cx, hint_cy):
+    """
+    Last-resort fallback for heavily overexposed dots where the red glow is so
+    large or white-centred that HSV detection fails. The overexposed impact point
+    is always the single brightest region on the board.
+
+    Uses a small blur to suppress single-pixel noise while preserving the peak.
+    Applies a relative threshold (peak must stand out from the local background)
+    to avoid false positives on plain white board with no dot.
+    """
+    gray = cv2.cvtColor(warped_img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    region_mask = np.zeros(gray.shape, dtype=np.uint8)
+    cv2.circle(region_mask, (int(hint_cx), int(hint_cy)), GUIDED_SEARCH_RADIUS, 255, -1)
+
+    region_vals = blurred[region_mask > 0]
+    if len(region_vals) == 0:
+        return []
+
+    max_val = int(region_vals.max())
+    mean_val = float(region_vals.mean())
+
+    # Require the peak to be bright AND stand out from the local background.
+    # The board is white paper (~180-210), the overexposed dot is 230-255.
+    # A plain white board without a dot won't satisfy both conditions.
+    if max_val < 180 or (max_val - mean_val) < 20:
+        return []
+
+    # Centroid of the top-10% brightness cluster is more stable than maxLoc.
+    threshold = int(max_val * 0.90)
+    bright_mask = ((blurred >= threshold).astype(np.uint8) * 255)
+    bright_mask = cv2.bitwise_and(bright_mask, region_mask)
+    M = cv2.moments(bright_mask)
+    if M["m00"] == 0:
+        return []
+    return [(M["m10"] / M["m00"], M["m01"] / M["m00"])]
+
+
 def _hint_to_canonical(img, H, hint_x, hint_y):
     """Transform a normalised frame position through H to canonical board coords."""
     h, w = img.shape[:2]
@@ -376,6 +415,12 @@ def process_frame(jpeg_bytes, hint_x=None, hint_y=None):
     # --- Guided fallback: strict detection missed but iOS saw a dot ---
     if not dots and hint_canonical is not None:
         dots = _detect_red_dots_guided(warped, *hint_canonical)
+        if dots:
+            guided = True
+
+    # --- Bright-spot fallback: dot so overexposed that red HSV fails entirely ---
+    if not dots and hint_canonical is not None:
+        dots = _detect_bright_spot_guided(warped, *hint_canonical)
         if dots:
             guided = True
 
