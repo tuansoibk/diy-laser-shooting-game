@@ -27,6 +27,8 @@ class AppViewModel: ObservableObject {
     private let boardDetector = BoardDetector()
     // nonisolated so reads/writes on processingQueue never hop to MainActor
     private nonisolated(unsafe) var isArmed = false
+    private var consecutiveFailures = 0
+    private let maxConsecutiveFailures = 5
 
     var api: APIClient { APIClient(baseURL: backendURL) }
 
@@ -111,6 +113,7 @@ class AppViewModel: ObservableObject {
             let shot = try await api.detectShot(jpeg: jpeg,
                                                 hintX: hint.map { Double($0.x) },
                                                 hintY: hint.map { Double($0.y) })
+            consecutiveFailures = 0
             if shot.multipleDots {
                 errorMessage = "Multiple dots detected — please retry"
                 arm()
@@ -118,8 +121,15 @@ class AppViewModel: ObservableObject {
             }
             appState = .result(image: image, dots: dots, board: board, shot: shot)
         } catch {
-            errorMessage = "Backend error: \(error.localizedDescription)"
-            appState = .idle
+            consecutiveFailures += 1
+            if consecutiveFailures >= maxConsecutiveFailures {
+                consecutiveFailures = 0
+                errorMessage = "Backend unreachable — stopping"
+                appState = .idle
+            } else {
+                errorMessage = "Backend error (\(consecutiveFailures)/\(maxConsecutiveFailures))"
+                arm()
+            }
         }
     }
 }

@@ -23,6 +23,13 @@ struct ShotResult: Decodable {
 class APIClient {
     var baseURL: String
 
+    private static let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest  = 3
+        cfg.timeoutIntervalForResource = 3
+        return URLSession(configuration: cfg)
+    }()
+
     init(baseURL: String) {
         self.baseURL = baseURL.trimmingCharacters(in: .init(charactersIn: "/"))
     }
@@ -55,7 +62,7 @@ class APIClient {
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.httpBody = body
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await APIClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
